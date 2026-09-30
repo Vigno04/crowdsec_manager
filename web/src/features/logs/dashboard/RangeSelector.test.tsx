@@ -20,4 +20,11 @@ describe('RangeSelector (sibling test)', () => {
     fireEvent.click(getByRole('button', { name: '24h' }))
     expect(onChange).toHaveBeenCalledWith('24h')
   })
+
+  it('renders mobile combobox selector with active value', () => {
+    const { getByRole } = render(<RangeSelector value="1h" onChange={() => {}} />)
+    const combobox = getByRole('combobox')
+    expect(combobox).toBeTruthy()
+    expect(combobox.textContent).toContain('1h')
+  })
 })

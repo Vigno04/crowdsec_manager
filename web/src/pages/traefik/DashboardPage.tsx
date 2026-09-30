@@ -561,7 +561,7 @@ export default function TraefikDashboardPage() {
             </TabsTrigger>
           </TabsList>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
             <Button variant={isLiveView ? "default" : "outline"} size="sm" onClick={() => setIsLiveView(!isLiveView)} disabled={!logProcessingEnabled} className="h-9 gap-2">
               <Activity className={cn("h-4 w-4", isLiveView && "animate-pulse")} />
               {isLiveView ? "Live" : "Static"}

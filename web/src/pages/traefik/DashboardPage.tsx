@@ -465,6 +465,15 @@ export default function TraefikDashboardPage() {
   const slowestEndpoints = d?.slowest_endpoints ?? []
   
   const uaMetrics = useMemo(() => {
+    if (d?.browsers && d?.operating_systems && d?.processors && d?.devices) {
+      return {
+        browsers: d.browsers,
+        os: d.operating_systems,
+        cpu: d.processors,
+        devices: d.devices,
+      }
+    }
+
     const browserMap: Record<string, number> = {}
     const osMap: Record<string, number> = {}
     const cpuMap: Record<string, number> = {}
@@ -487,7 +496,7 @@ export default function TraefikDashboardPage() {
       cpu: toArr(cpuMap),
       devices: toArr(deviceMap)
     }
-  }, [d?.user_agents])
+  }, [d?.browsers, d?.operating_systems, d?.processors, d?.devices, d?.user_agents])
 
   const seriesData = useMemo(() => {
     let rawSeries = d?.series ?? []

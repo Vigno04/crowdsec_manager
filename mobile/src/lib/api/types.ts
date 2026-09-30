@@ -226,6 +226,11 @@ export interface TraefikDashboard {
   top_ips: IPStat[];
   top_hosts: NameValue[];
   top_routers: NameValue[];
+  user_agents?: NameValue[];
+  browsers?: NameValue[];
+  operating_systems?: NameValue[];
+  processors?: NameValue[];
+  devices?: NameValue[];
   slowest_endpoints: NameValue[];
   tls_versions: NameValue[];
   recent_errors: TraefikRecentError[];

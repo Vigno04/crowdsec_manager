@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -279,6 +280,10 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 	tlsCounts := map[string]int{}
 	ipCounts := map[string]int{}
 	uaCounts := map[string]int{}
+	browserCounts := map[string]int{}
+	osCounts := map[string]int{}
+	cpuCounts := map[string]int{}
+	deviceCounts := map[string]int{}
 	addrCounts := map[string]int{}
 	endpointMaxMs := map[string]int{}
 
@@ -355,6 +360,19 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 		if ua != "" {
 			if cleaned := cleanUserAgent(ua); cleaned != "" {
 				uaCounts[cleaned]++
+			}
+			browser, os, cpu, device := parseUserAgentDetails(ua)
+			if browser != "" {
+				browserCounts[browser]++
+			}
+			if os != "" {
+				osCounts[os]++
+			}
+			if cpu != "" {
+				cpuCounts[cpu]++
+			}
+			if device != "" {
+				deviceCounts[device]++
 			}
 		}
 
@@ -456,6 +474,10 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 	out.TopHosts = topNameValues(hostCounts, maxTopHosts)
 	out.TopAddresses = topNameValues(addrCounts, maxTopRouters)
 	out.UserAgents = topNameValues(uaCounts, 50)
+	out.Browsers = topNameValues(browserCounts, 50)
+	out.OperatingSystems = topNameValues(osCounts, 50)
+	out.Processors = topNameValues(cpuCounts, 50)
+	out.Devices = topNameValues(deviceCounts, 50)
 	out.TopServices = sortedServiceDetails(serviceStats, maxTopRouters)
 	out.TLSVersions = topNameValues(tlsCounts, maxTLSVersions)
 	out.SlowestEndpoints = topNameValues(endpointMaxMs, maxSlowestEndpoints)
@@ -777,6 +799,10 @@ func emptyTraefikDashboard(rng models.DashboardRange, format string, now time.Ti
 		TopServices:      []models.TraefikServiceDetail{},
 		TopAddresses:     []models.NameValue{},
 		UserAgents:       []models.NameValue{},
+		Browsers:         []models.NameValue{},
+		OperatingSystems: []models.NameValue{},
+		Processors:       []models.NameValue{},
+		Devices:          []models.NameValue{},
 		SlowestEndpoints: []models.NameValue{},
 		TLSVersions:      []models.NameValue{},
 		RecentErrors:     []models.TraefikRecentError{},
@@ -967,26 +993,48 @@ func cleanUserAgent(ua string) string {
 	if ua == "" {
 		return "Unknown"
 	}
-	if strings.Contains(ua, "Chrome") && !strings.Contains(ua, "Edg") && !strings.Contains(ua, "OPR") {
-		return "Chrome"
-	}
-	if strings.Contains(ua, "Firefox") {
-		return "Firefox"
-	}
-	if strings.Contains(ua, "Safari") && !strings.Contains(ua, "Chrome") {
-		return "Safari"
-	}
-	if strings.Contains(ua, "Edg") {
+	uaLower := strings.ToLower(ua)
+	if strings.Contains(ua, "Edg/") || strings.Contains(ua, "Edge/") {
 		return "Edge"
 	}
-	if strings.Contains(ua, "OPR") || strings.Contains(ua, "Opera") {
+	if strings.Contains(ua, "OPR/") || strings.Contains(ua, "Opera") {
 		return "Opera"
 	}
-	if strings.Contains(ua, "curl") {
+	if (strings.Contains(ua, "Chrome") || strings.Contains(ua, "CriOS")) && !strings.Contains(ua, "Edg") && !strings.Contains(ua, "OPR") {
+		return "Chrome"
+	}
+	if strings.Contains(ua, "Firefox") || strings.Contains(ua, "FxiOS") {
+		return "Firefox"
+	}
+	if strings.Contains(ua, "Safari") && !strings.Contains(ua, "Chrome") && !strings.Contains(ua, "CriOS") && !strings.Contains(ua, "Android") {
+		return "Safari"
+	}
+	if strings.Contains(uaLower, "curl") {
 		return "Curl"
 	}
-	if strings.Contains(ua, "Postman") {
+	if strings.Contains(uaLower, "postman") {
 		return "Postman"
+	}
+	if strings.Contains(uaLower, "axios") {
+		return "Axios"
+	}
+	if strings.Contains(ua, "Go-http-client") {
+		return "Go HTTP Client"
+	}
+	if strings.Contains(uaLower, "python") {
+		return "Python"
+	}
+	if strings.Contains(ua, "Googlebot") {
+		return "Googlebot"
+	}
+	if strings.Contains(ua, "bingbot") {
+		return "Bingbot"
+	}
+	if strings.Contains(ua, "DuckDuckBot") {
+		return "DuckDuckBot"
+	}
+	if strings.Contains(ua, "YandexBot") || strings.Contains(ua, "Yandex") {
+		return "YandexBot"
 	}
 	if strings.Contains(ua, "Trident") || strings.Contains(ua, "MSIE") {
 		return "IE"
@@ -995,9 +1043,138 @@ func cleanUserAgent(ua string) string {
 	parts := strings.Split(ua, " ")
 	if len(parts) > 0 {
 		if strings.Contains(parts[0], "/") {
-			return strings.Split(parts[0], "/")[0]
+			token := strings.Split(parts[0], "/")[0]
+			if len(token) <= 25 {
+				return token
+			}
+		} else if len(parts[0]) <= 25 {
+			return parts[0]
 		}
-		return parts[0]
 	}
 	return "Other"
+}
+
+var (
+	reAndroidVer = regexp.MustCompile(`Android ([\d.]+)`)
+	reIOSVer     = regexp.MustCompile(`(?:OS|Version)[ /]([\d_]+)`)
+	reMacOSVer   = regexp.MustCompile(`Mac OS X ([\d_]+)`)
+	reParen      = regexp.MustCompile(`\(([^)]+)\)`)
+)
+
+func parseUserAgentDetails(ua string) (browser, os, cpu, device string) {
+	if ua == "" {
+		return "Unknown", "Unknown", "Unknown", "Unknown"
+	}
+
+	browser = cleanUserAgent(ua)
+	os = "Unknown"
+	cpu = "Unknown"
+	device = "Unknown"
+
+	// --- Operating System Detection ---
+	if strings.Contains(ua, "Android") {
+		if m := reAndroidVer.FindStringSubmatch(ua); len(m) > 1 {
+			os = "Android " + m[1]
+		} else {
+			os = "Android"
+		}
+	} else if strings.Contains(ua, "iPhone") || strings.Contains(ua, "iPad") || strings.Contains(ua, "CPU iPhone OS") || strings.Contains(ua, "CPU OS") {
+		if m := reIOSVer.FindStringSubmatch(ua); len(m) > 1 {
+			ver := strings.ReplaceAll(m[1], "_", ".")
+			os = "iOS " + ver
+		} else {
+			os = "iOS"
+		}
+	} else if strings.Contains(ua, "Windows NT") {
+		if strings.Contains(ua, "Windows NT 10.0") {
+			os = "Windows 10/11"
+		} else if strings.Contains(ua, "Windows NT 6.3") {
+			os = "Windows 8.1"
+		} else if strings.Contains(ua, "Windows NT 6.2") {
+			os = "Windows 8"
+		} else if strings.Contains(ua, "Windows NT 6.1") {
+			os = "Windows 7"
+		} else if strings.Contains(ua, "Windows NT 6.0") {
+			os = "Windows Vista"
+		} else if strings.Contains(ua, "Windows NT 5.1") {
+			os = "Windows XP"
+		} else {
+			os = "Windows"
+		}
+	} else if strings.Contains(ua, "Windows") {
+		os = "Windows"
+	} else if strings.Contains(ua, "Mac OS X") || strings.Contains(ua, "Macintosh") {
+		if m := reMacOSVer.FindStringSubmatch(ua); len(m) > 1 {
+			ver := strings.ReplaceAll(m[1], "_", ".")
+			os = "macOS " + ver
+		} else {
+			os = "macOS"
+		}
+	} else if strings.Contains(ua, "CrOS") {
+		os = "ChromeOS"
+	} else if strings.Contains(ua, "Ubuntu") {
+		os = "Ubuntu"
+	} else if strings.Contains(ua, "Debian") {
+		os = "Debian"
+	} else if strings.Contains(ua, "Fedora") {
+		os = "Fedora"
+	} else if strings.Contains(ua, "Linux") {
+		os = "Linux"
+	}
+
+	// --- CPU Architecture ---
+	uaLower := strings.ToLower(ua)
+	if strings.Contains(uaLower, "arm64") || strings.Contains(uaLower, "aarch64") || strings.Contains(uaLower, "arm_64") {
+		cpu = "ARM 64-bit"
+	} else if strings.Contains(uaLower, "x86_64") || strings.Contains(uaLower, "amd64") || strings.Contains(uaLower, "win64") || strings.Contains(uaLower, "wow64") || strings.Contains(uaLower, "x64") || strings.Contains(ua, "Intel") {
+		cpu = "x86 64-bit"
+	} else if strings.Contains(uaLower, "i386") || strings.Contains(uaLower, "i686") || strings.Contains(uaLower, "x86") {
+		cpu = "x86 32-bit"
+	} else if strings.Contains(uaLower, "armv7") || strings.Contains(uaLower, "armv8") || strings.Contains(uaLower, "arm") {
+		cpu = "ARM"
+	}
+
+	// --- Device Detection ---
+	if strings.Contains(ua, "iPhone") {
+		device = "iPhone"
+	} else if strings.Contains(ua, "iPad") {
+		device = "iPad"
+	} else if strings.Contains(ua, "Android") {
+		// Attempt to extract device model inside parentheses, e.g. (Linux; Android 10; SM-A505FN)
+		if m := reParen.FindStringSubmatch(ua); len(m) > 1 {
+			parts := strings.Split(m[1], ";")
+			for _, p := range parts {
+				trimmed := strings.TrimSpace(p)
+				if strings.Contains(trimmed, "Android") ||
+					strings.Contains(trimmed, "Linux") ||
+					strings.Contains(trimmed, "Build") ||
+					strings.Contains(trimmed, "wv") ||
+					strings.EqualFold(trimmed, "U") ||
+					len(trimmed) <= 2 {
+					continue
+				}
+				if len(trimmed) < 30 {
+					device = trimmed
+					break
+				}
+			}
+		}
+		if device == "Unknown" {
+			if strings.Contains(ua, "Mobile") {
+				device = "Android Mobile"
+			} else {
+				device = "Android Tablet"
+			}
+		}
+	} else if strings.Contains(ua, "Windows") {
+		device = "PC"
+	} else if strings.Contains(ua, "Macintosh") {
+		device = "Mac"
+	} else if strings.Contains(ua, "Linux") {
+		device = "Linux PC"
+	} else if strings.Contains(uaLower, "curl") || strings.Contains(uaLower, "python") || strings.Contains(uaLower, "axios") || strings.Contains(ua, "Go-http-client") || strings.Contains(uaLower, "postman") || strings.Contains(uaLower, "bot") {
+		device = "Server / Bot"
+	}
+
+	return browser, os, cpu, device
 }

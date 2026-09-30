@@ -124,6 +124,10 @@ type TraefikDashboard struct {
 	TopServices       []TraefikServiceDetail `json:"top_services"`
 	TopAddresses      []NameValue          `json:"top_addresses"`
 	UserAgents        []NameValue          `json:"user_agents"`
+	Browsers          []NameValue          `json:"browsers"`
+	OperatingSystems  []NameValue          `json:"operating_systems"`
+	Processors        []NameValue          `json:"processors"`
+	Devices           []NameValue          `json:"devices"`
 	SlowestEndpoints  []NameValue          `json:"slowest_endpoints"` // value = ms
 	TLSVersions       []NameValue          `json:"tls_versions"`
 	RecentErrors      []TraefikRecentError `json:"recent_errors"`

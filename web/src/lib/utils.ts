@@ -25,40 +25,94 @@ export function parseUserAgent(ua: string) {
   let cpu = 'Unknown'
   let device = 'Unknown'
 
+  const uaLower = ua.toLowerCase()
+
+  // Browser detection
   if (ua.includes('Firefox/')) browser = 'Firefox ' + ua.split('Firefox/')[1].split(' ')[0]
   else if (ua.includes('Edg/')) browser = 'Edge ' + ua.split('Edg/')[1].split(' ')[0]
   else if (ua.includes('Chrome/')) browser = 'Chrome ' + ua.split('Chrome/')[1].split(' ')[0]
   else if (ua.includes('Safari/') && !ua.includes('Chrome')) browser = 'Safari ' + ua.split('Safari/')[1].split(' ')[0]
+  else if (ua.includes('OPR/') || ua.includes('Opera/')) browser = 'Opera ' + (ua.split('OPR/')[1] || ua.split('Opera/')[1] || '').split(' ')[0]
+  else if (ua === 'Chrome' || ua.startsWith('Chrome ')) browser = ua
+  else if (ua === 'Firefox' || ua.startsWith('Firefox ')) browser = ua
+  else if (ua === 'Edge' || ua.startsWith('Edge ')) browser = ua
+  else if (ua === 'Safari' || ua.startsWith('Safari ')) browser = ua
+  else if (ua === 'Opera' || ua.startsWith('Opera ')) browser = ua
+  else if (uaLower.includes('curl')) browser = 'Curl'
+  else if (uaLower.includes('postman')) browser = 'Postman'
+  else if (uaLower.includes('axios')) browser = 'Axios'
+  else if (ua.includes('Go-http-client')) browser = 'Go HTTP Client'
+  else if (uaLower.includes('python')) browser = 'Python'
+  else if (ua.includes('Googlebot')) browser = 'Googlebot'
+  else if (ua.includes('bingbot')) browser = 'Bingbot'
+  else if (ua.includes('DuckDuckBot')) browser = 'DuckDuckBot'
+  else if (ua.includes('YandexBot') || ua.includes('Yandex')) browser = 'YandexBot'
+  else {
+    const firstWord = ua.split(/[\s/]/)[0]
+    if (firstWord && firstWord.length <= 25) browser = firstWord
+  }
 
+  // OS detection
   if (ua.includes('Android')) {
-    os = 'Android ' + (ua.match(/Android ([\d.]+)/)?.[1] || '')
+    const ver = ua.match(/Android ([\d.]+)/)?.[1]
+    os = ver ? `Android ${ver}` : 'Android'
   } else if (ua.includes('iPhone') || ua.includes('iPad')) {
-    os = 'iOS ' + (ua.match(/OS ([\d_]+)/)?.[1]?.replace(/_/g, '.') || '')
+    const ver = ua.match(/(?:OS|Version) ([\d_]+)/)?.[1]?.replace(/_/g, '.')
+    os = ver ? `iOS ${ver}` : 'iOS'
     device = ua.includes('iPhone') ? 'iPhone' : 'iPad'
   } else if (ua.includes('Windows NT')) {
     const ver = ua.match(/Windows NT ([\d.]+)/)?.[1]
-    os = ver === '10.0' ? 'Windows 10/11' : ver === '6.3' ? 'Windows 8.1' : ver === '6.2' ? 'Windows 8' : ver === '6.1' ? 'Windows 7' : 'Windows'
-  } else if (ua.includes('Mac OS X')) {
-    os = 'macOS ' + (ua.match(/Mac OS X ([\d_]+)/)?.[1]?.replace(/_/g, '.') || '')
+    os = ver === '10.0' ? 'Windows 10/11' : ver === '6.3' ? 'Windows 8.1' : ver === '6.2' ? 'Windows 8' : ver === '6.1' ? 'Windows 7' : ver === '6.0' ? 'Windows Vista' : ver === '5.1' ? 'Windows XP' : 'Windows'
+  } else if (ua.includes('Windows')) {
+    os = 'Windows'
+  } else if (ua.includes('Mac OS X') || ua.includes('Macintosh')) {
+    const ver = ua.match(/Mac OS X ([\d_]+)/)?.[1]?.replace(/_/g, '.')
+    os = ver ? `macOS ${ver}` : 'macOS'
+  } else if (ua.includes('CrOS')) {
+    os = 'ChromeOS'
+  } else if (ua.includes('Ubuntu')) {
+    os = 'Ubuntu'
+  } else if (ua.includes('Debian')) {
+    os = 'Debian'
   } else if (ua.includes('Linux')) {
     os = 'Linux'
   }
 
-  if (ua.includes('arm_64') || ua.includes('aarch64') || ua.includes('arm64')) cpu = 'ARM 64-bit'
-  else if (ua.includes('x86_64') || ua.includes('amd64')) cpu = 'x86 64-bit'
-  else if (ua.includes('i386') || ua.includes('i686')) cpu = 'x86 32-bit'
+  // CPU detection
+  if (uaLower.includes('arm_64') || uaLower.includes('aarch64') || uaLower.includes('arm64')) cpu = 'ARM 64-bit'
+  else if (uaLower.includes('x86_64') || uaLower.includes('amd64') || uaLower.includes('win64') || uaLower.includes('wow64') || uaLower.includes('x64') || ua.includes('Intel')) cpu = 'x86 64-bit'
+  else if (uaLower.includes('i386') || uaLower.includes('i686') || uaLower.includes('x86')) cpu = 'x86 32-bit'
+  else if (uaLower.includes('armv7') || uaLower.includes('armv8') || uaLower.includes('arm')) cpu = 'ARM'
 
-  const deviceMatch = ua.match(/\(([^)]+)\)/)
-  if (deviceMatch && device === 'Unknown') {
-    const parts = deviceMatch[1].split(';')
-    for (const part of parts) {
-      const p = part.trim()
-      if (p.includes('Android') || p.includes('Linux') || p.includes('Windows') || p.includes('Macintosh')) continue
-      if (p.length > 2) {
-        device = p
-        break
+  // Device detection
+  if (ua.includes('iPhone')) {
+    device = 'iPhone'
+  } else if (ua.includes('iPad')) {
+    device = 'iPad'
+  } else if (ua.includes('Android')) {
+    const deviceMatch = ua.match(/\(([^)]+)\)/)
+    if (deviceMatch) {
+      const parts = deviceMatch[1].split(';')
+      for (const part of parts) {
+        const p = part.trim()
+        if (p.includes('Android') || p.includes('Linux') || p.includes('Build') || p.includes('wv') || p.length <= 2) continue
+        if (p.length < 30) {
+          device = p
+          break
+        }
       }
     }
+    if (device === 'Unknown') {
+      device = ua.includes('Mobile') ? 'Android Mobile' : 'Android Tablet'
+    }
+  } else if (ua.includes('Windows')) {
+    device = 'PC'
+  } else if (ua.includes('Macintosh')) {
+    device = 'Mac'
+  } else if (ua.includes('Linux')) {
+    device = 'Linux PC'
+  } else if (uaLower.includes('curl') || uaLower.includes('python') || uaLower.includes('axios') || uaLower.includes('postman') || uaLower.includes('bot') || ua.includes('Go-http-client')) {
+    device = 'Server / Bot'
   }
 
   return { browser, os, cpu, device }

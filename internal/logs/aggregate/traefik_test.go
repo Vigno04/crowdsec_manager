@@ -39,7 +39,8 @@ func TestBucketTraefik_EmptyInput(t *testing.T) {
 	}
 	if d.Series == nil || d.StatusCodes == nil || d.Methods == nil ||
 		d.TopIPs == nil || d.TopHosts == nil || d.TopRouters == nil ||
-		d.SlowestEndpoints == nil || d.TLSVersions == nil || d.RecentErrors == nil {
+		d.SlowestEndpoints == nil || d.TLSVersions == nil || d.RecentErrors == nil ||
+		d.Browsers == nil || d.OperatingSystems == nil || d.Processors == nil || d.Devices == nil {
 		t.Fatalf("nil slices must be replaced with empty slices for JSON serialisation: %+v", d)
 	}
 }
@@ -215,3 +216,77 @@ func TestTraefikJSON_StartTime_PrioritizesTimeOverStartUTC(t *testing.T) {
 		t.Fatalf("startTime() = %v, want %v", got, want)
 	}
 }
+
+func TestBucketTraefik_UserAgentParsingAndAggregation(t *testing.T) {
+	logs := strings.Join([]string{
+		`{"ClientHost":"1.2.3.4","DownstreamStatus":200,"RequestMethod":"GET","RequestHost":"example.com","StartUTC":"2026-05-07T11:50:00Z","request_User-Agent":"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}`,
+		`{"ClientHost":"1.2.3.4","DownstreamStatus":200,"RequestMethod":"GET","RequestHost":"example.com","StartUTC":"2026-05-07T11:51:00Z","request_User-Agent":"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1"}`,
+		`{"ClientHost":"5.6.7.8","DownstreamStatus":200,"RequestMethod":"GET","RequestHost":"example.com","StartUTC":"2026-05-07T11:52:00Z","request_User-Agent":"Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"}`,
+		`{"ClientHost":"9.9.9.9","DownstreamStatus":200,"RequestMethod":"GET","RequestHost":"example.com","StartUTC":"2026-05-07T11:53:00Z","request_User-Agent":"curl/7.88.1"}`,
+	}, "\n")
+
+	now := time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC)
+	d := BucketTraefikRaw(logs, now.Add(-time.Hour), now, models.Range1h, fakeGeo{}, testSystemStats())
+
+	if d.Format != "json" {
+		t.Fatalf("expected json format, got %q", d.Format)
+	}
+
+	// Browsers
+	browserMap := map[string]int{}
+	for _, b := range d.Browsers {
+		browserMap[b.Name] = b.Value
+	}
+	if browserMap["Chrome"] != 2 {
+		t.Errorf("expected 2 Chrome requests, got %d", browserMap["Chrome"])
+	}
+	if browserMap["Safari"] != 1 {
+		t.Errorf("expected 1 Safari request, got %d", browserMap["Safari"])
+	}
+	if browserMap["Curl"] != 1 {
+		t.Errorf("expected 1 Curl request, got %d", browserMap["Curl"])
+	}
+
+	// Operating Systems
+	osMap := map[string]int{}
+	for _, o := range d.OperatingSystems {
+		osMap[o.Name] = o.Value
+	}
+	if osMap["Windows 10/11"] != 1 {
+		t.Errorf("expected 1 Windows 10/11 request, got %d", osMap["Windows 10/11"])
+	}
+	if !strings.HasPrefix(d.OperatingSystems[0].Name, "Windows") && osMap["iOS 17.4.1"] != 1 {
+		t.Errorf("expected iOS in OS map, got %+v", osMap)
+	}
+	if osMap["Android 14"] != 1 {
+		t.Errorf("expected 1 Android 14 request, got %d", osMap["Android 14"])
+	}
+
+	// Processors / CPU
+	cpuMap := map[string]int{}
+	for _, c := range d.Processors {
+		cpuMap[c.Name] = c.Value
+	}
+	if cpuMap["x86 64-bit"] != 1 {
+		t.Errorf("expected 1 x86 64-bit, got %d", cpuMap["x86 64-bit"])
+	}
+
+	// Devices
+	devMap := map[string]int{}
+	for _, dev := range d.Devices {
+		devMap[dev.Name] = dev.Value
+	}
+	if devMap["PC"] != 1 {
+		t.Errorf("expected 1 PC, got %d", devMap["PC"])
+	}
+	if devMap["iPhone"] != 1 {
+		t.Errorf("expected 1 iPhone, got %d", devMap["iPhone"])
+	}
+	if devMap["Pixel 8 Pro"] != 1 {
+		t.Errorf("expected 1 Pixel 8 Pro, got %d", devMap["Pixel 8 Pro"])
+	}
+	if devMap["Server / Bot"] != 1 {
+		t.Errorf("expected 1 Server / Bot, got %d", devMap["Server / Bot"])
+	}
+}
+

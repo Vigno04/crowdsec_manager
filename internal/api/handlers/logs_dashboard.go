@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"time"
 
 	"crowdsec-manager/internal/cache"
@@ -191,9 +194,8 @@ func analyzeServiceDashboardWithReader(input serviceDashboardHandlerInput) gin.H
 	}
 }
 
-// readTraefikLogs prefers the access log file inside the Traefik container
-// (which carries CLF or JSON depending on configuration); falls back to
-// container logs the same way GetTraefikLogs does today.
+// readTraefikLogs prefers reading directly from the mounted access log file on the local filesystem
+// (instant, zero Docker IPC overhead); falls back to container exec tail, and finally container logs.
 func readTraefikLogs(input traefikLogReadInput) (string, error) {
 	logPath := ""
 	if input.Database != nil {
@@ -204,6 +206,16 @@ func readTraefikLogs(input traefikLogReadInput) (string, error) {
 		logPath = input.Config.TraefikAccessLog
 	}
 	if logPath != "" {
+		// Fast-path: if the access log is directly accessible on the local filesystem (e.g. mounted volume),
+		// read it directly via reverse seeking to avoid Docker exec latency and IPC overhead.
+		if fi, err := os.Stat(logPath); err == nil && !fi.IsDir() {
+			if logs, err := readLocalLogTail(logPath, input.Tail); err == nil {
+				return logs, nil
+			} else {
+				logger.Debug("failed to read local traefik access log; falling back to container exec", "error", err)
+			}
+		}
+
 		if logs, err := input.Reader.ExecCommand(input.Config.TraefikContainerName, []string{"tail", "-n", input.Tail, logPath}); err == nil {
 			return logs, nil
 		} else {
@@ -211,4 +223,79 @@ func readTraefikLogs(input traefikLogReadInput) (string, error) {
 		}
 	}
 	return input.Reader.GetContainerLogs(input.Config.TraefikContainerName, input.Tail)
+}
+
+// readLocalLogTail reads the last tail lines from a local file efficiently without loading
+// the entire file into memory by seeking backwards from the end of the file in chunks.
+func readLocalLogTail(path string, tailStr string) (string, error) {
+	tailCount, err := strconv.Atoi(tailStr)
+	if err != nil || tailCount <= 0 {
+		tailCount = 10000
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+
+	fileSize := stat.Size()
+	if fileSize == 0 {
+		return "", nil
+	}
+
+	const chunkSize = 64 * 1024
+	buf := make([]byte, chunkSize)
+	var lineCount int
+	offset := fileSize
+
+	// Scan backwards from EOF to find the byte offset corresponding to the requested tail line count
+	for offset > 0 && lineCount < tailCount {
+		readSize := int64(chunkSize)
+		if offset < readSize {
+			readSize = offset
+		}
+		offset -= readSize
+
+		_, err := file.Seek(offset, io.SeekStart)
+		if err != nil {
+			break
+		}
+
+		n, err := io.ReadFull(file, buf[:readSize])
+		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+			break
+		}
+
+		chunk := buf[:n]
+		for i := len(chunk) - 1; i >= 0; i-- {
+			if chunk[i] == '\n' {
+				lineCount++
+				if lineCount > tailCount {
+					offset += int64(i + 1)
+					break
+				}
+			}
+		}
+	}
+
+	if offset < 0 {
+		offset = 0
+	}
+
+	_, err = file.Seek(offset, io.SeekStart)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }

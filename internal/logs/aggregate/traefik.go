@@ -198,10 +198,21 @@ func BucketTraefik(entries []docker.StructuredLogEntry, since, now time.Time, rn
 		out.ErrorRate = float64(errorTotal) / float64(totalRequests)
 	}
 
-	if !minTs.IsZero() {
+	series := trimLeadingZeroBuckets(sortedBuckets(buckets), rng)
+	out.Series = series
+	if len(series) > 0 {
+		for _, b := range series {
+			if b.Total > 0 {
+				out.OldestEntry = b.T
+				break
+			}
+		}
+		if out.OldestEntry == "" && !minTs.IsZero() {
+			out.OldestEntry = minTs.UTC().Format(time.RFC3339)
+		}
+	} else if !minTs.IsZero() {
 		out.OldestEntry = minTs.UTC().Format(time.RFC3339)
 	}
-	out.Series = sortedBuckets(buckets)
 	out.StatusCodes = topNameValues(statusCounts, 0)
 	out.Methods = topNameValues(methodCounts, 0)
 	out.TopIPs = topIPs(ipCounts, geo, maxTopIPs)
@@ -423,10 +434,21 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 		}
 	}
 
-	if !minTs.IsZero() {
+	series := trimLeadingZeroBuckets(sortedBuckets(buckets), rng)
+	out.Series = series
+	if len(series) > 0 {
+		for _, b := range series {
+			if b.Total > 0 {
+				out.OldestEntry = b.T
+				break
+			}
+		}
+		if out.OldestEntry == "" && !minTs.IsZero() {
+			out.OldestEntry = minTs.UTC().Format(time.RFC3339)
+		}
+	} else if !minTs.IsZero() {
 		out.OldestEntry = minTs.UTC().Format(time.RFC3339)
 	}
-	out.Series = sortedBuckets(buckets)
 	out.StatusCodes = topNameValues(statusCounts, 0)
 	out.Methods = topNameValues(methodCounts, 0)
 	out.TopRouters = sortedRouterDetails(routerStats, maxTopRouters)
@@ -821,7 +843,30 @@ func calculateDynamicGranularity(span time.Duration) time.Duration {
 	if target < 7*24*time.Hour {
 		return 7 * 24 * time.Hour
 	}
-	return 30 * 24 * time.Hour
+	return 7 * 24 * time.Hour
+}
+
+func trimLeadingZeroBuckets(series []models.TraefikBucket, rng models.DashboardRange) []models.TraefikBucket {
+	if len(series) == 0 {
+		return []models.TraefikBucket{}
+	}
+	// For all-time ("all") or multi-day ranges (e.g. 7d), trim leading zero buckets
+	// so the graph does not display weeks/months of flat empty zero lines before actual traffic.
+	if rng == models.RangeAll || rng == models.Range7d {
+		firstActiveIdx := -1
+		for i, b := range series {
+			if b.Total > 0 {
+				firstActiveIdx = i
+				break
+			}
+		}
+		if firstActiveIdx > 0 {
+			// Keep at most 1 empty bucket as a clean ramp-up origin point
+			startIdx := firstActiveIdx - 1
+			return series[startIdx:]
+		}
+	}
+	return series
 }
 
 func sortedBuckets(buckets map[time.Time]*models.TraefikBucket) []models.TraefikBucket {

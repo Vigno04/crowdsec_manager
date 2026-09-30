@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Tooltip,
@@ -29,29 +28,11 @@ interface RangeSelectorProps {
   className?: string
 }
 
-export function RangeSelector({ value, onChange, oldestEntry, className }: RangeSelectorProps) {
-  const availableRanges = useMemo(() => {
-    if (!oldestEntry) return DASHBOARD_RANGES
-
-    const oldestMs = new Date(oldestEntry).getTime()
-    if (isNaN(oldestMs)) return DASHBOARD_RANGES
-
-    const dataAgeMs = Date.now() - oldestMs
-
-    return DASHBOARD_RANGES.filter((r) => {
-      const dur = RANGE_DURATION_MS[r]
-      // 'all' is always available
-      if (dur === null) return true
-      // Show the range if the data is at least 30% of the range window,
-      // so we don't show a range that would be almost entirely empty.
-      return dataAgeMs >= dur * 0.3
-    })
-  }, [oldestEntry])
-
+export function RangeSelector({ value, onChange, className }: RangeSelectorProps) {
   return (
     <TooltipProvider delayDuration={300}>
       <div className={cn('inline-flex items-center gap-1 rounded-md bg-muted p-1', className)}>
-        {availableRanges.map((r) => {
+        {DASHBOARD_RANGES.map((r) => {
           const isAll = r === 'all'
           const isActive = value === r
 

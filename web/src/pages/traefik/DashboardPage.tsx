@@ -312,34 +312,6 @@ export default function TraefikDashboardPage() {
     placeholderData: keepPreviousData,
   })
 
-  // Auto-select the best range after the first load based on oldest_entry.
-  // Runs only once when we get the first real response.
-  const hasAutoSelected = useRef(false)
-  useEffect(() => {
-    if (hasAutoSelected.current) return
-    const oldest = dashboardData?.oldest_entry
-    if (!oldest) return
-    hasAutoSelected.current = true
-
-    const dataAgeMs = Date.now() - new Date(oldest).getTime()
-    // Ordered from most-granular to broadest: pick the finest range
-    // that has at least 80% coverage so the graph looks populated.
-    const ordered: DashboardRange[] = ['5m', '1h', '6h', '24h', '7d', 'all']
-    const durations: Record<DashboardRange, number | null> = {
-      '5m':  5 * 60_000,
-      '1h':  60 * 60_000,
-      '6h':  6 * 60 * 60_000,
-      '24h': 24 * 60 * 60_000,
-      '7d':  7 * 24 * 60 * 60_000,
-      'all': null,
-    }
-    const best = ordered.find((r) => {
-      const dur = durations[r]
-      if (dur === null) return true
-      return dataAgeMs <= dur  // data fits inside this window
-    }) ?? 'all'
-    if (best !== dashboardRange) setDashboardRange(best)
-  }, [dashboardData?.oldest_entry]) // eslint-disable-line react-hooks/exhaustive-deps
   
   const { data: traefikLogs } = useQuery({
     queryKey: ['logs-traefik', tailLines],
@@ -483,35 +455,44 @@ export default function TraefikDashboardPage() {
     }
   }, [d?.user_agents])
 
-  const seriesData = useMemo(() => (d?.series ?? []).map((b: any) => {
-    const t = new Date(b.t)
-    const HHmm = b.t.slice(11, 16)
-    const MMdd = `${t.getMonth() + 1}/${t.getDate()}`
-    
-    let dateStr = ''
-    if (dashboardRange === '5m' || dashboardRange === '1h') {
-      dateStr = b.t.slice(11, 19)
-    } else if (dashboardRange === '6h' || dashboardRange === '24h') {
-      dateStr = HHmm
-    } else {
-      // 7d or all - use MM/DD and HH:mm if not exactly at midnight
-      if (HHmm === '00:00') {
-        dateStr = MMdd
-      } else {
-        dateStr = `${MMdd} ${HHmm}`
+  const seriesData = useMemo(() => {
+    let rawSeries = d?.series ?? []
+    if (dashboardRange === 'all' || dashboardRange === '7d') {
+      const firstActive = rawSeries.findIndex((b: any) => b.total > 0)
+      if (firstActive > 0) {
+        rawSeries = rawSeries.slice(Math.max(0, firstActive - 1))
       }
     }
-    
-    return {
-      date: dateStr,
-      Total: b.total,
-      '2xx': b.c2xx,
-      '3xx': b.c3xx,
-      '4xx': b.c4xx,
-      '5xx': b.c5xx,
-      value: b.total,
-    }
-  }), [d?.series, dashboardRange])
+    return rawSeries.map((b: any) => {
+      const t = new Date(b.t)
+      const HHmm = b.t.slice(11, 16)
+      const MMdd = `${t.getMonth() + 1}/${t.getDate()}`
+      
+      let dateStr = ''
+      if (dashboardRange === '5m' || dashboardRange === '1h') {
+        dateStr = b.t.slice(11, 19)
+      } else if (dashboardRange === '6h' || dashboardRange === '24h') {
+        dateStr = HHmm
+      } else {
+        // 7d or all - use MM/DD and HH:mm if not exactly at midnight
+        if (HHmm === '00:00') {
+          dateStr = MMdd
+        } else {
+          dateStr = `${MMdd} ${HHmm}`
+        }
+      }
+      
+      return {
+        date: dateStr,
+        Total: b.total,
+        '2xx': b.c2xx,
+        '3xx': b.c3xx,
+        '4xx': b.c4xx,
+        '5xx': b.c5xx,
+        value: b.total,
+      }
+    })
+  }, [d?.series, dashboardRange])
 
   const seriesTickFormatter = useCallback((val: string | number) => {
     const label = String(val)
@@ -557,34 +538,6 @@ export default function TraefikDashboardPage() {
         </Card>
       )}
 
-      {/* Full-page loading skeleton on initial load */}
-      {dashboardLoading && !dashboardData && logProcessingEnabled && (
-        <div className="relative">
-          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg min-h-[60vh]">
-            <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">
-              <div className="relative">
-                <Loader2 className="h-10 w-10 animate-spin text-primary" />
-                <div className="absolute inset-0 h-10 w-10 animate-ping opacity-20 rounded-full bg-primary" />
-              </div>
-              <div className="text-center space-y-1">
-                <p className="text-sm font-semibold text-foreground">Loading Dashboard</p>
-                <p className="text-xs text-muted-foreground">Aggregating Traefik logs and metrics…</p>
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 opacity-30 pointer-events-none">
-            <CardSkeleton lines={2} />
-            <CardSkeleton lines={2} />
-            <CardSkeleton lines={2} />
-            <CardSkeleton lines={2} />
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 opacity-30 pointer-events-none">
-            <CardSkeleton className="lg:col-span-2" lines={6} />
-            <CardSkeleton lines={4} />
-          </div>
-        </div>
-      )}
-
       <Tabs defaultValue="overview" className="space-y-4" onValueChange={setActiveTab}>
         <div className="flex flex-wrap items-center justify-between gap-3 bg-card p-2 rounded-lg border">
           <TabsList className="bg-transparent flex-wrap h-auto justify-start">
@@ -613,7 +566,7 @@ export default function TraefikDashboardPage() {
               <Activity className={cn("h-4 w-4", isLiveView && "animate-pulse")} />
               {isLiveView ? "Live" : "Static"}
             </Button>
-            <RangeSelector value={dashboardRange} onChange={setDashboardRange} oldestEntry={d?.oldest_entry} />
+            <RangeSelector value={dashboardRange} onChange={setDashboardRange} />
           </div>
         </div>
 
@@ -625,8 +578,41 @@ export default function TraefikDashboardPage() {
           </div>
         )}
 
-        {/* Dimming wrapper — content fades slightly while placeholder data is shown */}
-        <div className={cn('transition-opacity duration-300', isPlaceholderData && 'opacity-60 pointer-events-none')}>
+        {/* Full-page loading skeleton on initial load */}
+        {dashboardLoading && !dashboardData && logProcessingEnabled ? (
+          <div className="relative">
+            <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg min-h-[60vh]">
+              <div className="sticky top-1/3 flex flex-col items-center gap-4 animate-in fade-in duration-300">
+                <div className="relative">
+                  <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                  <div className="absolute inset-0 h-10 w-10 animate-ping opacity-20 rounded-full bg-primary" />
+                </div>
+                <div className="text-center space-y-1">
+                  <p className="text-sm font-semibold text-foreground">Loading Dashboard</p>
+                  <p className="text-xs text-muted-foreground">Aggregating Traefik logs and metrics…</p>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-6 opacity-30 pointer-events-none">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <CardSkeleton lines={2} />
+                <CardSkeleton lines={2} />
+                <CardSkeleton lines={2} />
+                <CardSkeleton lines={2} />
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <CardSkeleton className="lg:col-span-2" lines={6} />
+                <CardSkeleton lines={6} />
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <CardSkeleton lines={6} />
+                <CardSkeleton lines={6} />
+              </div>
+              <CardSkeleton lines={8} />
+            </div>
+          </div>
+        ) : (
+          <div className={cn('transition-opacity duration-300', isPlaceholderData && 'opacity-60 pointer-events-none')}>
 
         {/* OVERVIEW TAB */}
         <TabsContent value="overview" className="space-y-6">
@@ -1625,7 +1611,8 @@ export default function TraefikDashboardPage() {
           />
         </TabsContent>
 
-        </div> {/* end dimming wrapper */}
+        </div>
+      )}
 
       </Tabs>
     </div>

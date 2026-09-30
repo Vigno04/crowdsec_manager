@@ -170,6 +170,22 @@ var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 // Essential for commands returning JSON to prevent parsing errors
 // Pre-allocates buffer for better performance
 func stripControlCharacters(s string) string {
+	// Fast path: if the string does not contain an ESC byte (0x1b) and has no
+	// control characters, return s immediately with zero allocations.
+	if !strings.ContainsRune(s, '\x1b') {
+		hasControl := false
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if c < 32 && c != '\n' && c != '\r' && c != '\t' {
+				hasControl = true
+				break
+			}
+		}
+		if !hasControl {
+			return s
+		}
+	}
+
 	// First strip ANSI codes
 	s = ansiRegex.ReplaceAllString(s, "")
 

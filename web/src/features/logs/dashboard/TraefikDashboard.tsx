@@ -40,15 +40,24 @@ export function TraefikDashboard({ data, isLoading }: TraefikDashboardProps) {
     value: router.requests,
   }))
 
-  const seriesData = (data?.series ?? []).map((b) => ({
-    date: b.t.slice(11, 16),
-    Total: b.total,
-    '2xx': b.c2xx,
-    '3xx': b.c3xx,
-    '4xx': b.c4xx,
-    '5xx': b.c5xx,
-    value: b.total,
-  }))
+  const seriesData = useMemo(() => {
+    let rawSeries = data?.series ?? []
+    if (data?.range === 'all' || data?.range === '7d') {
+      const firstActive = rawSeries.findIndex((b) => b.total > 0)
+      if (firstActive > 0) {
+        rawSeries = rawSeries.slice(Math.max(0, firstActive - 1))
+      }
+    }
+    return rawSeries.map((b) => ({
+      date: b.t.slice(11, 16),
+      Total: b.total,
+      '2xx': b.c2xx,
+      '3xx': b.c3xx,
+      '4xx': b.c4xx,
+      '5xx': b.c5xx,
+      value: b.total,
+    }))
+  }, [data?.series, data?.range])
 
   const mapPoints = (data?.top_ips ?? [])
     .filter((ip) => typeof ip.lat === 'number' && typeof ip.lng === 'number')

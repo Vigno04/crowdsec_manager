@@ -56,6 +56,29 @@ jobs:
           make contracts
           git diff --exit-code -- web/src/lib/api/contracts.generated.ts mobile/src/lib/api/contracts.generated.ts
 
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Verify GHCR push permissions
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          TEST_TAG="ghcr.io/${REPO_LOWER}:auth-check"
+          docker pull alpine:latest
+          docker tag alpine:latest "${TEST_TAG}"
+          if ! docker push "${TEST_TAG}"; then
+            echo "::error::Push to ghcr.io failed with permission denied!"
+            echo "::error::GITHUB_TOKEN on forked repositories cannot publish packages without a Personal Access Token."
+            echo "::error::Please create a GitHub PAT (classic) with 'write:packages' scope and add it as a secret named 'GHCR_TOKEN' under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
         with:
@@ -70,14 +93,6 @@ jobs:
         with:
           username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Log in to GitHub Container Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata
         id: meta

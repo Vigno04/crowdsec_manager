@@ -121,7 +121,7 @@ export function parseTraefikLog(line: string) {
       return {
         ...d,
         Duration: durationMs,
-        t: d.StartLocal || d.StartUTC || d.time || d.t,
+        t: d.time || d.StartLocal || d.StartUTC || d.t,
         ip: d.ClientHost || d.ClientAddr || d.client_ip || d.ip,
         method: d.RequestMethod || d.method,
         path: d.RequestPath || d.path,

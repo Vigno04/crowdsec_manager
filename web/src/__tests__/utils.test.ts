@@ -15,4 +15,10 @@ describe('parseTraefikLog', () => {
     expect(parsed.t).toBe('2026-05-07T11:55:00.000Z')
     expect(Number.isNaN(new Date(parsed.t as string).getTime())).toBe(false)
   })
+
+  it('prioritizes time over StartUTC for long-lived connections', () => {
+    const parsed = parseTraefikLog('{"StartUTC":"2026-09-19T17:20:32Z","time":"2026-09-29T11:13:48Z","Duration":841995601780913}')
+
+    expect(parsed.t).toBe('2026-09-29T11:13:48Z')
+  })
 })

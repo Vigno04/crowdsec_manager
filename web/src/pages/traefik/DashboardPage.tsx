@@ -289,20 +289,31 @@ export default function TraefikDashboardPage() {
 
   // Logs Config
   const tailLines = '100'
-  const [isStreaming, setIsStreaming] = useState(false)
   const [streamLogs, setStreamLogs] = useState<string[]>([])
   const wsRef = useRef<WebSocket | null>(null)
 
   const stopStream = useCallback(() => {
-    if (wsRef.current) { wsRef.current.close(); wsRef.current = null }
-    setIsStreaming(false)
+    if (wsRef.current) {
+      wsRef.current.close()
+      wsRef.current = null
+    }
   }, [])
 
-  const logProcessing = useLogProcessingControl({ onDisabled: stopStream })
+  const logProcessing = useLogProcessingControl({
+    onDisabled: () => {
+      stopStream()
+      setIsLiveView(false)
+    },
+  })
   const logProcessingEnabled = logProcessing.enabled
 
   // Dashboard Metrics
-  const { data: dashboardData, isLoading: dashboardLoading, isPlaceholderData } = useQuery({
+  const {
+    data: dashboardData,
+    isLoading: dashboardLoading,
+    isPlaceholderData,
+    refetch: refetchDashboard,
+  } = useQuery({
     queryKey: ['logs-dashboard', 'traefik', dashboardRange],
     queryFn: async () => (await dashboardAPI.getTraefik(dashboardRange)).data.data,
     enabled: logProcessingEnabled,
@@ -312,63 +323,86 @@ export default function TraefikDashboardPage() {
     placeholderData: keepPreviousData,
   })
 
-  
-  const { data: traefikLogs } = useQuery({
+  // Static/recent logs - enabled for all tabs whenever log processing is enabled
+  const { data: traefikLogs, refetch: refetchTraefikLogs } = useQuery({
     queryKey: ['logs-traefik', tailLines],
     queryFn: async () => (await api.logs.getTraefik(tailLines)).data.data ?? null,
-    enabled: logProcessingEnabled && !isStreaming && activeTab === 'logs',
+    enabled: logProcessingEnabled,
   })
 
   useMountEffect(() => stopStream)
 
-  // ... (Implementing logic for Logs tab ...)
-  const startWebSocket = useCallback(() => {
-    if (!logProcessingEnabled) {
-      toast.info('Log processing is disabled')
+  const traefikLogsRef = useRef(traefikLogs?.logs)
+  traefikLogsRef.current = traefikLogs?.logs
+
+  // Sync WebSocket stream with isLiveView
+  useEffect(() => {
+    if (!logProcessingEnabled || !isLiveView) {
+      stopStream()
       return
     }
+
     const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}${api.logs.getStreamUrl('traefik')}`
+    let socket: WebSocket | null = null
+
     try {
-      const ws = new WebSocket(wsUrl)
-      wsRef.current = ws
-      ws.onopen = () => { toast.success('Traefik log stream connected'); setStreamLogs([]) }
-      ws.onmessage = (event: MessageEvent) => {
+      socket = new WebSocket(wsUrl)
+      wsRef.current = socket
+
+      socket.onopen = () => {
+        if (wsRef.current !== socket) return
+        toast.success('Traefik live stream connected')
+        // Pre-populate with existing static logs so table is never empty on connect
+        if (traefikLogsRef.current) {
+          const initial = traefikLogsRef.current.split('\n').filter(l => l.trim())
+          setStreamLogs(initial.slice(-100))
+        }
+      }
+
+      socket.onmessage = (event: MessageEvent) => {
+        if (wsRef.current !== socket) return
         const message = (event.data as string)?.trim()
         if (!message) return
         const lines = message.split('\n').filter(line => line.trim().length > 0)
         if (lines.length === 0) return
         setStreamLogs(prev => {
           const lastFewLines = prev.slice(-5)
-          const hasNewContent = lines.some(line => !lastFewLines.includes(line))
-          if (!hasNewContent && prev.length > 0) return prev
-          return [...prev, ...lines]
+          const newLines = lines.filter(line => !lastFewLines.includes(line))
+          if (newLines.length === 0) return prev
+          return [...prev, ...newLines].slice(-200) // Bound RAM usage
         })
       }
-      ws.onerror = (event) => { toast.error(getErrorMessage(event, 'WebSocket error occurred', ErrorContexts.LogsStreamWebsocketError)); setIsStreaming(false) }
-      ws.onclose = () => { toast.info('Log stream disconnected'); setIsStreaming(false) }
+
+      socket.onerror = (event) => {
+        if (wsRef.current !== socket) return
+        toast.error(getErrorMessage(event, 'WebSocket error occurred', ErrorContexts.LogsStreamWebsocketError))
+      }
+
+      socket.onclose = () => {
+        if (wsRef.current !== socket) return
+        wsRef.current = null
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Failed to connect to stream', ErrorContexts.LogsStreamConnect))
-      setIsStreaming(false)
     }
-  }, [logProcessingEnabled])
 
-  const handleToggleStream = useCallback(() => {
-    if (isStreaming) {
-      stopStream()
-      // Note: We don't clear streamLogs here so the user can still see them, 
-      // but they will be replaced by fetched logs when next refreshing.
-    } else {
-      if (!logProcessingEnabled) {
-        toast.info('Log processing is disabled')
-        return
+    return () => {
+      if (socket) {
+        socket.close()
       }
-      setStreamLogs([])
-      startWebSocket()
-      setIsStreaming(true)
+      if (wsRef.current === socket) {
+        wsRef.current = null
+      }
     }
-  }, [isStreaming, logProcessingEnabled, startWebSocket, stopStream])
+  }, [logProcessingEnabled, isLiveView, stopStream])
 
-  const rawLogs = logProcessingEnabled ? (isStreaming ? streamLogs.join('\n') : traefikLogs?.logs || '') : ''
+  const rawLogs = useMemo(() => {
+    if (!logProcessingEnabled) return ''
+    if (isLiveView && streamLogs.length > 0) {
+      return streamLogs.join('\n')
+    }
+    return traefikLogs?.logs || ''
+  }, [logProcessingEnabled, isLiveView, streamLogs, traefikLogs?.logs])
   
   const [levelFilter, setLevelFilter] = useState('all')
   const [selectedLog, setSelectedLog] = useState<any>(null)
@@ -562,7 +596,24 @@ export default function TraefikDashboardPage() {
           </TabsList>
           
           <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto">
-            <Button variant={isLiveView ? "default" : "outline"} size="sm" onClick={() => setIsLiveView(!isLiveView)} disabled={!logProcessingEnabled} className="h-9 gap-2">
+            <Button
+              variant={isLiveView ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                if (!logProcessingEnabled) {
+                  toast.info('Log processing is disabled')
+                  return
+                }
+                const next = !isLiveView
+                setIsLiveView(next)
+                if (next) {
+                  refetchDashboard()
+                  refetchTraefikLogs()
+                }
+              }}
+              disabled={!logProcessingEnabled}
+              className="h-9 gap-2"
+            >
               <Activity className={cn("h-4 w-4", isLiveView && "animate-pulse")} />
               {isLiveView ? "Live" : "Static"}
             </Button>
@@ -1496,11 +1547,11 @@ export default function TraefikDashboardPage() {
                   </Badge>
                   <div className="flex items-center gap-1.5">
                     <div className="relative">
-                      <div className={cn("w-2 h-2 rounded-full", isStreaming ? "bg-success" : "bg-muted-foreground/30")} />
-                      {isStreaming && <div className="absolute inset-0 w-2 h-2 bg-success rounded-full animate-ping opacity-75" />}
+                      <div className={cn("w-2 h-2 rounded-full", isLiveView ? "bg-success" : "bg-muted-foreground/30")} />
+                      {isLiveView && <div className="absolute inset-0 w-2 h-2 bg-success rounded-full animate-ping opacity-75" />}
                     </div>
-                    <span className={cn("text-[10px] font-bold uppercase", isStreaming ? "text-success" : "text-muted-foreground")}>
-                      {isStreaming ? 'Live' : 'Static'}
+                    <span className={cn("text-[10px] font-bold uppercase", isLiveView ? "text-success" : "text-muted-foreground")}>
+                      {isLiveView ? 'Live' : 'Static'}
                     </span>
                   </div>
                 </div>
@@ -1519,9 +1570,6 @@ export default function TraefikDashboardPage() {
                       className={cn("px-2 py-1 rounded-[4px] transition-all", levelFilter === 'success' ? "bg-success text-success-foreground shadow-sm font-bold" : "text-muted-foreground")}
                     >Success</button>
                   </div>
-                  <Button variant={isStreaming ? "default" : "outline"} size="sm" className="h-8 text-xs" onClick={handleToggleStream} disabled={!logProcessingEnabled && !isStreaming}>
-                    {isStreaming ? 'Stop' : 'Stream'}
-                  </Button>
                 </div>
               </CardHeader>
               <CardContent className="p-0">

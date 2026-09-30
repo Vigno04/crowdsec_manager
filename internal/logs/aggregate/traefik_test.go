@@ -203,3 +203,15 @@ func TestBucketTraefik_GranularityChoice(t *testing.T) {
 		t.Fatalf("range echoed wrong: %s", d.Range)
 	}
 }
+
+func TestTraefikJSON_StartTime_PrioritizesTimeOverStartUTC(t *testing.T) {
+	row := traefikJSON{
+		StartUTC: "2026-09-19T17:20:32Z",
+		Time:     "2026-09-29T11:13:48Z",
+	}
+	got := row.startTime()
+	want, _ := time.Parse(time.RFC3339, "2026-09-29T11:13:48Z")
+	if !got.Equal(want) {
+		t.Fatalf("startTime() = %v, want %v", got, want)
+	}
+}

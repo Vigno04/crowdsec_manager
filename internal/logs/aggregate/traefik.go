@@ -737,9 +737,9 @@ func (r traefikJSON) populated() bool {
 }
 
 func (r traefikJSON) startTime() time.Time {
-	utc := r.StartUTC
+	utc := r.Time
 	if utc == "" {
-		utc = r.Time
+		utc = r.StartUTC
 	}
 	if utc == "" {
 		utc = r.T

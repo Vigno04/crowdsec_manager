@@ -93,4 +93,10 @@ describe('TraefikDashboard', () => {
     render(<TraefikDashboard data={{ ...sample, format: 'clf' }} />)
     expect(screen.queryByText(/Enable Traefik JSON access log/i)).toBeTruthy()
   })
+
+  it('renders fallback warning banner when warning is provided', () => {
+    const warningMsg = 'traefik log read failed, using slower docker logs, check mounts'
+    render(<TraefikDashboard data={{ ...sample, warning: warningMsg }} />)
+    expect(screen.getByText(warningMsg)).toBeTruthy()
+  })
 })

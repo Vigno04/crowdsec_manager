@@ -152,7 +152,7 @@ func analyzeServiceDashboardWithReader(input serviceDashboardHandlerInput) gin.H
 		switch service {
 		case "traefik":
 			systemStats := aggregate.GetSystemStats()
-			rawLogs, err := readTraefikLogs(traefikLogReadInput{
+			rawLogs, warning, err := readTraefikLogs(traefikLogReadInput{
 				Reader:   input.Reader,
 				Database: input.Database,
 				Config:   input.Config,
@@ -167,6 +167,7 @@ func analyzeServiceDashboardWithReader(input serviceDashboardHandlerInput) gin.H
 				return
 			}
 			data := aggregate.BucketTraefikRaw(rawLogs, since, now, rng, adapter, systemStats)
+			data.Warning = warning
 			if input.Cache != nil {
 				input.Cache.Set(cacheKey, data, serviceDashboardCacheTTL)
 			}
@@ -196,7 +197,7 @@ func analyzeServiceDashboardWithReader(input serviceDashboardHandlerInput) gin.H
 
 // readTraefikLogs prefers reading directly from the mounted access log file on the local filesystem
 // (instant, zero Docker IPC overhead); falls back to container exec tail, and finally container logs.
-func readTraefikLogs(input traefikLogReadInput) (string, error) {
+func readTraefikLogs(input traefikLogReadInput) (string, string, error) {
 	logPath := ""
 	if input.Database != nil {
 		settings, _ := input.Database.GetSettings()
@@ -205,24 +206,45 @@ func readTraefikLogs(input traefikLogReadInput) (string, error) {
 	if logPath == "" {
 		logPath = input.Config.TraefikAccessLog
 	}
+
+	fallbackWarning := "traefik log read failed, using slower docker logs, check mounts"
+
 	if logPath != "" {
 		// Fast-path: if the access log is directly accessible on the local filesystem (e.g. mounted volume),
 		// read it directly via reverse seeking to avoid Docker exec latency and IPC overhead.
 		if fi, err := os.Stat(logPath); err == nil && !fi.IsDir() {
 			if logs, err := readLocalLogTail(logPath, input.Tail); err == nil {
-				return logs, nil
+				return logs, "", nil
 			} else {
 				logger.Debug("failed to read local traefik access log; falling back to container exec", "error", err)
 			}
 		}
 
+		tailCount, _ := strconv.Atoi(input.Tail)
+		if tailCount <= 0 {
+			tailCount = 10000
+		}
+		// Since Traefik access log entries average ~2.5 KB, BusyBox tail -n on large files
+		// scans sequentially and can lock up CPU for 30s. Using tail -c utilizes lseek (<1ms).
+		byteCount := tailCount * 2500
+		fastCmd := []string{
+			"sh", "-c",
+			fmt.Sprintf("test -f %s && tail -c %d %s 2>/dev/null | tail -n %d", strconv.Quote(logPath), byteCount, strconv.Quote(logPath), tailCount),
+		}
+
+		if logs, err := input.Reader.ExecCommand(input.Config.TraefikContainerName, fastCmd); err == nil {
+			return logs, fallbackWarning, nil
+		}
+
+		// Fallback to standard tail -n if sh/pipe fails
 		if logs, err := input.Reader.ExecCommand(input.Config.TraefikContainerName, []string{"tail", "-n", input.Tail, logPath}); err == nil {
-			return logs, nil
+			return logs, fallbackWarning, nil
 		} else {
 			logger.Debug("traefik access log file unreadable; falling back to container logs", "error", err)
 		}
 	}
-	return input.Reader.GetContainerLogs(input.Config.TraefikContainerName, input.Tail)
+	logs, err := input.Reader.GetContainerLogs(input.Config.TraefikContainerName, input.Tail)
+	return logs, fallbackWarning, err
 }
 
 // readLocalLogTail reads the last tail lines from a local file efficiently without loading

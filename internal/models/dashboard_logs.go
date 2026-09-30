@@ -107,6 +107,7 @@ type TraefikDashboard struct {
 	Format            string               `json:"format"` // "json" or "clf"
 	GeneratedAt       string               `json:"generated_at"`
 	OldestEntry       string               `json:"oldest_entry,omitempty"` // ISO-8601 timestamp of the oldest log entry
+	Warning           string               `json:"warning,omitempty"`
 	TotalRequests     int                  `json:"total_requests"`
 	UniqueIPs         int                  `json:"unique_ips"`
 	AvgDurationMs     *float64             `json:"avg_duration_ms"`

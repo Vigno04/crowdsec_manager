@@ -73,6 +73,12 @@ export function TraefikDashboard({ data, isLoading }: TraefikDashboardProps) {
 
   return (
     <div className="space-y-4">
+      {data?.warning && (
+        <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-600 dark:text-amber-400 font-medium animate-in fade-in duration-200">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+          <span>{data.warning}</span>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Requests"

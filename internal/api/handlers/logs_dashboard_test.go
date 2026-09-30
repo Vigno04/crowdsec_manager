@@ -2,8 +2,11 @@ package handlers
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -208,10 +211,12 @@ type fakeDashboardReader struct {
 	execErr   error
 	logOut    string
 	logErr    error
+	lastCmd   []string
 }
 
 func (f *fakeDashboardReader) ExecCommand(containerName string, cmd []string) (string, error) {
 	f.execCalls++
+	f.lastCmd = cmd
 	return f.execOut, f.execErr
 }
 
@@ -266,4 +271,82 @@ func newDashboardTestDB(t *testing.T) *database.Database {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func TestAnalyzeServiceDashboard_TraefikFallbackWarning(t *testing.T) {
+	// Case 1: Local file read works -> No warning
+	tmpDir := t.TempDir()
+	logFile := tmpDir + "/access.log"
+	testLogContent := `{"ClientHost":"1.2.3.4","ClientPort":"12345","DownstreamStatus":200,"Duration":1000000,"RequestPath":"/","StartLocal":"2026-05-07T12:00:00Z"}` + "\n"
+	if err := os.WriteFile(logFile, []byte(testLogContent), 0o644); err != nil {
+		t.Fatalf("write temp log file: %v", err)
+	}
+
+	db := newDashboardTestDB(t)
+	settings, err := db.GetSettings()
+	if err != nil {
+		t.Fatalf("get settings: %v", err)
+	}
+	settings.TraefikAccessLog = logFile
+	if err := db.UpdateSettings(settings); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	reader := &fakeDashboardReader{}
+	w := runDashboardRequest(t, dashboardRequestInput{
+		Reader:   reader,
+		Database: db,
+		Service:  "traefik",
+		RawQuery: "range=1h",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Success bool                    `json:"success"`
+		Data    models.TraefikDashboard `json:"data"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Data.Warning != "" {
+		t.Fatalf("expected empty warning when local file read succeeds, got %q", resp.Data.Warning)
+	}
+	if reader.execCalls != 0 || reader.logCalls != 0 {
+		t.Fatalf("expected 0 docker reader calls when local file exists, got exec=%d logs=%d", reader.execCalls, reader.logCalls)
+	}
+
+	// Case 2: Local file does not exist -> Exec fallback with tail -c is attempted and warning is emitted
+	settings.TraefikAccessLog = "/nonexistent/access.log"
+	if err := db.UpdateSettings(settings); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+	reader = &fakeDashboardReader{execOut: testLogContent}
+	w = runDashboardRequest(t, dashboardRequestInput{
+		Reader:   reader,
+		Database: db,
+		Service:  "traefik",
+		RawQuery: "range=1h",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", w.Code, w.Body.String())
+	}
+	resp = struct {
+		Success bool                    `json:"success"`
+		Data    models.TraefikDashboard `json:"data"`
+	}{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	wantWarning := "traefik log read failed, using slower docker logs, check mounts"
+	if resp.Data.Warning != wantWarning {
+		t.Fatalf("expected warning %q, got %q", wantWarning, resp.Data.Warning)
+	}
+	if reader.execCalls != 1 {
+		t.Fatalf("expected 1 exec call, got %d", reader.execCalls)
+	}
+	// Verify fastCmd uses tail -c
+	if len(reader.lastCmd) < 3 || !strings.Contains(reader.lastCmd[2], "tail -c") {
+		t.Fatalf("expected fastCmd with tail -c, got %v", reader.lastCmd)
+	}
 }

@@ -64,12 +64,12 @@ export default function Hub() {
             <Link key={card.href} to={card.href}>
               <Card className="h-full transition-colors hover:border-primary/60">
                 <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Icon className="h-5 w-5 text-primary" />
-                      <CardTitle className="text-xl">{card.title}</CardTitle>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <Icon className="h-5 w-5 text-primary shrink-0" />
+                      <CardTitle className="text-lg sm:text-xl truncate">{card.title}</CardTitle>
                     </div>
-                    <ArrowRight className="h-5 w-5 text-muted-foreground" />
+                    <ArrowRight className="h-5 w-5 text-muted-foreground shrink-0" />
                   </div>
                 </CardHeader>
                 <CardContent>

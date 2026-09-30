@@ -53,13 +53,13 @@ function ManageEntries({
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Manage Entries</CardTitle>
-        <CardDescription>
+      <CardHeader className="p-4 sm:p-6 pb-3 sm:pb-4">
+        <CardTitle className="text-lg sm:text-xl">Manage Entries</CardTitle>
+        <CardDescription className="text-xs sm:text-sm">
           Add or remove IP addresses and CIDR ranges from allowlists
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
         <Tabs defaultValue="add">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="add">Add Entries</TabsTrigger>
@@ -99,7 +99,7 @@ function ManageEntries({
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="expiration">Expiration (optional)</Label>
                   <Input

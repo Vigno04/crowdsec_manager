@@ -530,6 +530,7 @@ export default function AlertAnalysis() {
     },
     refetchInterval: 30000,
     staleTime: 30000,
+    refetchOnWindowFocus: false,
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey?.[1] === activeFilterKey ? previousData : undefined,
   })
@@ -597,6 +598,7 @@ export default function AlertAnalysis() {
   const { items, hasMore, sentinelRef } = useInfiniteScroll<CrowdSecAlert>({
     data: filteredAlerts,
     pageSize: 50,
+    resetKey: `${activeFilterKey}_${query}`,
   })
 
   // ---- Chart data ----
@@ -644,6 +646,30 @@ export default function AlertAnalysis() {
     },
     [setFilter],
   )
+
+  const lastToggleRef = useRef<{ id: number; time: number; state: boolean }>({ id: -1, time: 0, state: false })
+
+  const handleToggleAlert = useCallback((id: number, open?: boolean) => {
+    const now = Date.now()
+    if (
+      typeof open === 'boolean' &&
+      lastToggleRef.current.id === id &&
+      lastToggleRef.current.state === open &&
+      now - lastToggleRef.current.time < 350
+    ) {
+      return
+    }
+    if (typeof open === 'boolean') {
+      lastToggleRef.current = { id, time: now, state: open }
+    }
+
+    setExpandedAlert((current) => {
+      if (typeof open === 'boolean') {
+        return open ? id : (current === id ? null : current)
+      }
+      return current === id ? null : id
+    })
+  }, [])
 
   const handleDeleteAlert = useCallback(async () => {
     if (deleteAlertId == null) return
@@ -856,19 +882,19 @@ export default function AlertAnalysis() {
               {/* ---- Card view ---- */}
               <TabsContent value="cards">
                 <div className="space-y-2">
-                  {items.map((alert, index) => (
-                    <AlertCard
-                      key={alert.id ?? index}
-                      alert={alert}
-                      index={index}
-                      isExpanded={expandedAlert === (alert.id ?? index)}
-                      onToggle={() =>
-                        setExpandedAlert(
-                          expandedAlert === (alert.id ?? index) ? null : (alert.id ?? index),
-                        )
-                      }
-                    />
-                  ))}
+                  {items.map((alert, index) => {
+                    const alertId = alert.id ?? index
+                    return (
+                      <AlertCard
+                        key={alertId}
+                        alert={alert}
+                        index={index}
+                        isExpanded={expandedAlert === alertId}
+                        onToggle={() => handleToggleAlert(alertId)}
+                        onOpenChange={(open) => handleToggleAlert(alertId, open)}
+                      />
+                    )
+                  })}
                 </div>
                 <div ref={sentinelRef as React.Ref<HTMLDivElement>} className="h-4" />
                 {hasMore && (

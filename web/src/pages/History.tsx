@@ -360,16 +360,16 @@ export default function History() {
 
       {/* ── Tabs ──────────────────────────────────────────────────────── */}
       <Tabs defaultValue="decisions">
-        <TabsList>
-          <TabsTrigger value="decisions">
+        <TabsList className="h-auto flex-wrap gap-1.5 p-1.5 w-full sm:w-auto justify-start">
+          <TabsTrigger value="decisions" className="flex-1 sm:flex-initial text-xs sm:text-sm py-1.5 px-3">
             Decisions
             {decisionsTotal > 0 && <Badge variant="secondary" className="ml-2 text-xs">{decisionsTotal}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="alerts">
+          <TabsTrigger value="alerts" className="flex-1 sm:flex-initial text-xs sm:text-sm py-1.5 px-3">
             Alerts
             {alertsTotal > 0 && <Badge variant="secondary" className="ml-2 text-xs">{alertsTotal}</Badge>}
           </TabsTrigger>
-          <TabsTrigger value="offenders">
+          <TabsTrigger value="offenders" className="w-full sm:w-auto text-xs sm:text-sm py-1.5 px-3">
             Repeated Offenders
             {offenders.length > 0 && <Badge variant="destructive" className="ml-2 text-xs">{offenders.length}</Badge>}
           </TabsTrigger>

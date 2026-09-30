@@ -214,28 +214,28 @@ export default function HubBrowser() {
       {isError && <QueryError error={error} onRetry={refetch} />}
 
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Package className="h-5 w-5" />
-              <div>
-                <CardTitle>Hub Items Overview</CardTitle>
-                <CardDescription>Legacy overview and quick maintenance actions.</CardDescription>
+        <CardHeader className="p-4 sm:p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <Package className="h-6 w-6 text-primary shrink-0" />
+              <div className="min-w-0">
+                <CardTitle className="text-lg sm:text-xl">Hub Items Overview</CardTitle>
+                <CardDescription className="text-xs sm:text-sm mt-0.5">Legacy overview and quick maintenance actions.</CardDescription>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+            <div className="flex items-center gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading} className="flex-1 sm:flex-initial">
+                <RefreshCw className={`h-4 w-4 mr-2 shrink-0 ${isLoading ? 'animate-spin' : ''}`} />
                 Refresh
               </Button>
-              <Button size="sm" onClick={() => upgradeAllMutation.mutate()} disabled={upgradeAllMutation.isPending}>
-                <Download className="h-4 w-4 mr-2" />
+              <Button size="sm" onClick={() => upgradeAllMutation.mutate()} disabled={upgradeAllMutation.isPending} className="flex-1 sm:flex-initial">
+                <Download className="h-4 w-4 mr-2 shrink-0" />
                 {upgradeAllMutation.isPending ? 'Upgrading...' : 'Update Hub'}
               </Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 p-4 sm:p-6 pt-0 sm:pt-0">
           {rawParseError && (
             <Alert>
               <AlertTitle>Hub response format issue</AlertTitle>
@@ -273,9 +273,15 @@ export default function HubBrowser() {
               }, { replace: true })
             }}
           >
-            <TabsList>
+            <TabsList className="h-auto flex-wrap gap-1.5 p-1.5 w-full justify-start">
               {HUB_TABS.map((tab) => (
-                <TabsTrigger key={tab.value} value={tab.value}>{tab.label}</TabsTrigger>
+                <TabsTrigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="text-xs sm:text-sm py-1.5 px-2.5 sm:px-3"
+                >
+                  {tab.label}
+                </TabsTrigger>
               ))}
             </TabsList>
 
@@ -284,7 +290,7 @@ export default function HubBrowser() {
                 {isLoading ? (
                   <PageLoader message="Loading hub items..." />
                 ) : filteredItems.length > 0 ? (
-                  <div className="rounded-md border">
+                  <div className="rounded-md border overflow-x-auto">
                     <div className="px-4 py-2">
                       <ResultsSummary
                         total={activeItems.length}
@@ -321,7 +327,7 @@ export default function HubBrowser() {
                               <TableCell className="text-right">
                                 <div className="flex items-center justify-end gap-1">
                                   <Button variant="ghost" size="sm" onClick={() => toggleExpanded(item.name)}>
-                                    <Info className="h-4 w-4" />
+                                    <Info className="h-4 w-4 shrink-0" />
                                   </Button>
                                   {item.status === 'enabled' ? (
                                     <Button
@@ -330,7 +336,7 @@ export default function HubBrowser() {
                                       onClick={() => removeMutation.mutate({ name: item.name, type: tab.value })}
                                       disabled={removeMutation.isPending}
                                     >
-                                      <Trash2 className="h-4 w-4 text-destructive" />
+                                      <Trash2 className="h-4 w-4 text-destructive shrink-0" />
                                     </Button>
                                   ) : (
                                     <Button
@@ -339,7 +345,7 @@ export default function HubBrowser() {
                                       onClick={() => installMutation.mutate({ name: item.name, type: tab.value })}
                                       disabled={installMutation.isPending}
                                     >
-                                      <Download className="h-4 w-4" />
+                                      <Download className="h-4 w-4 shrink-0" />
                                     </Button>
                                   )}
                                 </div>

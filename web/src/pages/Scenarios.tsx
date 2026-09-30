@@ -149,16 +149,16 @@ export default function Scenarios() {
 
       {/* Current Scenarios */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              <div>
-                <CardTitle>Active Scenarios</CardTitle>
-                <CardDescription>
+        <CardHeader className="p-4 sm:p-6">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <FileText className="h-5 w-5 text-primary shrink-0" />
+              <div className="min-w-0">
+                <CardTitle className="text-lg sm:text-xl">Active Scenarios</CardTitle>
+                <CardDescription className="truncate text-xs sm:text-sm">
                   Currently installed CrowdSec scenarios
                   {filteredScenarios.length > 0 && (
-                    <span className="ml-2">
+                    <span className="ml-1 sm:ml-2">
                       ({filteredScenarios.length} scenario{filteredScenarios.length !== 1 ? 's' : ''} found
                       {urlFilters.q ? ` of ${scenariosList.length}` : ''})
                     </span>
@@ -167,22 +167,23 @@ export default function Scenarios() {
               </div>
             </div>
             {filteredScenarios.length > 0 && (
-              <Badge variant="outline" className="flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" />{filteredScenarios.length} Active
+              <Badge variant="outline" className="flex items-center gap-1 shrink-0 text-xs">
+                <CheckCircle2 className="h-3 w-3 shrink-0" />
+                <span>{filteredScenarios.length} Active</span>
               </Badge>
             )}
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-4 p-4 sm:p-6 pt-0 sm:pt-0">
           {isError && (
             <Alert variant="destructive">
-              <AlertCircle className="h-4 w-4" />
+              <AlertCircle className="h-4 w-4 shrink-0" />
               <AlertDescription>Failed to load scenarios: {error instanceof Error ? error.message : 'Unknown error'}</AlertDescription>
             </Alert>
           )}
           {debugInfo && import.meta.env.DEV && (
             <Alert>
-              <AlertCircle className="h-4 w-4" />
+              <AlertCircle className="h-4 w-4 shrink-0" />
               <AlertDescription>
                 <details className="text-xs">
                   <summary className="cursor-pointer font-semibold mb-2">Debug Info (Click to expand)</summary>
@@ -196,12 +197,16 @@ export default function Scenarios() {
           ) : filteredScenarios.length > 0 ? (
             <div className="space-y-2">
               {filteredScenarios.map((scenario, index) => (
-                <div key={index} className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-mono font-medium text-sm truncate">{scenario.name}</p>
+                <div key={index} className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 sm:gap-4 p-3 border rounded-lg hover:bg-accent/50 transition-colors">
+                  <div className="flex-1 min-w-0 w-full">
+                    <p className="font-mono font-medium text-sm truncate w-full" title={scenario.name}>
+                      {scenario.name}
+                    </p>
                     {scenario.status && (
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        <Badge variant={scenario.status === 'enabled' ? 'default' : 'outline'}>{scenario.status}</Badge>
+                        <Badge variant={scenario.status === 'enabled' ? 'default' : 'outline'} className="text-[11px] px-1.5 py-0">
+                          {scenario.status}
+                        </Badge>
                         {(scenario.local_version || scenario.version) && (
                           <span className="text-xs text-muted-foreground">v{scenario.local_version || scenario.version}</span>
                         )}
@@ -209,7 +214,12 @@ export default function Scenarios() {
                     )}
                   </div>
                   {scenario.local_path && (
-                    <span className="text-xs text-muted-foreground font-mono ml-4 truncate max-w-xs">{scenario.local_path}</span>
+                    <span
+                      className="text-xs text-muted-foreground font-mono truncate max-w-full sm:max-w-xs shrink-0"
+                      title={scenario.local_path}
+                    >
+                      {scenario.local_path}
+                    </span>
                   )}
                 </div>
               ))}

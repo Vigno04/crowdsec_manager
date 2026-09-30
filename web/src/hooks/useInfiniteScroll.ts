@@ -5,6 +5,8 @@ interface UseInfiniteScrollOptions<T> {
   data: T[]
   /** Items per page (default 50) */
   pageSize?: number
+  /** Optional key that triggers a reset to page 1 when its value changes */
+  resetKey?: string | number
 }
 
 interface UseInfiniteScrollResult<T> {
@@ -25,17 +27,26 @@ interface UseInfiniteScrollResult<T> {
 export function useInfiniteScroll<T>({
   data,
   pageSize = 50,
+  resetKey,
 }: UseInfiniteScrollOptions<T>): UseInfiniteScrollResult<T> {
   const [visibleCount, setVisibleCount] = useState(pageSize)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const prevResetKeyRef = useRef(resetKey)
 
   const hasMore = visibleCount < data.length
   const items = data.slice(0, visibleCount)
 
-  // Reset when data changes (e.g. new filters)
+  // Reset when filters change (via resetKey if provided, or data reference)
   useEffect(() => {
-    setVisibleCount(pageSize)
-  }, [data, pageSize])
+    if (resetKey !== undefined) {
+      if (prevResetKeyRef.current !== resetKey) {
+        prevResetKeyRef.current = resetKey
+        setVisibleCount(pageSize)
+      }
+    } else {
+      setVisibleCount(pageSize)
+    }
+  }, [resetKey, data, pageSize])
 
   useEffect(() => {
     const el = sentinelRef.current

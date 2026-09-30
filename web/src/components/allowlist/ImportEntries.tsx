@@ -81,13 +81,13 @@ export function ImportEntries({ allowlists, selectedAllowlist, onSelectAllowlist
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Import Entries</CardTitle>
-        <CardDescription>
+      <CardHeader className="p-4 sm:p-6 pb-3 sm:pb-4">
+        <CardTitle className="text-lg sm:text-xl">Import Entries</CardTitle>
+        <CardDescription className="text-xs sm:text-sm">
           Upload a plain-text file (one IP/CIDR per line) to bulk-import entries into an allowlist.
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="import-allowlist">Target Allowlist</Label>
@@ -119,7 +119,7 @@ export function ImportEntries({ allowlists, selectedAllowlist, onSelectAllowlist
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="import-expiration">Expiration (optional)</Label>
               <Input
@@ -186,7 +186,7 @@ export function ImportEntries({ allowlists, selectedAllowlist, onSelectAllowlist
           </div>
 
           <Button type="submit" disabled={importMutation.isPending || !selectedFile} className="w-full">
-            <Upload className="h-4 w-4" />
+            <Upload className="h-4 w-4 mr-2 shrink-0" />
             {importMutation.isPending ? 'Importing...' : 'Import Entries'}
           </Button>
         </form>

@@ -31,6 +31,7 @@ on:
 
 env:
   IMAGE_NAME: crowdsec-manager
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
   build-and-push:
@@ -64,10 +65,10 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to Docker Hub
-        if: github.event_name != 'pull_request' && secrets.DOCKERHUB_USERNAME != ''
+        if: github.event_name != 'pull_request' && env.DOCKERHUB_USERNAME != ''
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GitHub Container Registry
@@ -83,7 +84,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ secrets.DOCKERHUB_USERNAME != '' && format('{0}/{1}', secrets.DOCKERHUB_USERNAME, env.IMAGE_NAME) || '' }}
+            ${{ env.DOCKERHUB_USERNAME != '' && format('{0}/{1}', env.DOCKERHUB_USERNAME, env.IMAGE_NAME) || '' }}
             ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch

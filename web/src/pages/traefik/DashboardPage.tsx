@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { 
   ResponsiveContainer, 
@@ -25,7 +25,8 @@ import {
   HardDrive,
   Cpu as CpuIcon,
   MemoryStick,
-  Check
+  Check,
+  Loader2
 } from 'lucide-react'
 import api from '@/lib/api'
 import { dashboardAPI, type DashboardRange } from '@/lib/api/dashboard'
@@ -43,7 +44,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { PageHeader } from '@/components/common'
+import { PageHeader, CardSkeleton } from '@/components/common'
 import { LogProcessingToggle, useLogProcessingControl } from '@/components/logs/LogProcessingToggle'
 import { useSearch } from '@/contexts/SearchContext'
 import { useMountEffect } from '@/hooks/useMountEffect'
@@ -284,6 +285,7 @@ export default function TraefikDashboardPage() {
   const { query } = useSearch()
   
   const [isLiveView, setIsLiveView] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview')
 
   // Logs Config
   const tailLines = '100'
@@ -300,19 +302,49 @@ export default function TraefikDashboardPage() {
   const logProcessingEnabled = logProcessing.enabled
 
   // Dashboard Metrics
-  const { data: dashboardData, isLoading: dashboardLoading } = useQuery({
+  const { data: dashboardData, isLoading: dashboardLoading, isPlaceholderData } = useQuery({
     queryKey: ['logs-dashboard', 'traefik', dashboardRange],
     queryFn: async () => (await dashboardAPI.getTraefik(dashboardRange)).data.data,
     enabled: logProcessingEnabled,
     refetchInterval: () => logProcessingEnabled && isLiveView ? 5_000 : false,
     staleTime: isLiveView ? 3_000 : Infinity,
     gcTime: isLiveView ? 60_000 : 5 * 60_000,
+    placeholderData: keepPreviousData,
   })
+
+  // Auto-select the best range after the first load based on oldest_entry.
+  // Runs only once when we get the first real response.
+  const hasAutoSelected = useRef(false)
+  useEffect(() => {
+    if (hasAutoSelected.current) return
+    const oldest = dashboardData?.oldest_entry
+    if (!oldest) return
+    hasAutoSelected.current = true
+
+    const dataAgeMs = Date.now() - new Date(oldest).getTime()
+    // Ordered from most-granular to broadest: pick the finest range
+    // that has at least 80% coverage so the graph looks populated.
+    const ordered: DashboardRange[] = ['5m', '1h', '6h', '24h', '7d', 'all']
+    const durations: Record<DashboardRange, number | null> = {
+      '5m':  5 * 60_000,
+      '1h':  60 * 60_000,
+      '6h':  6 * 60 * 60_000,
+      '24h': 24 * 60 * 60_000,
+      '7d':  7 * 24 * 60 * 60_000,
+      'all': null,
+    }
+    const best = ordered.find((r) => {
+      const dur = durations[r]
+      if (dur === null) return true
+      return dataAgeMs <= dur  // data fits inside this window
+    }) ?? 'all'
+    if (best !== dashboardRange) setDashboardRange(best)
+  }, [dashboardData?.oldest_entry]) // eslint-disable-line react-hooks/exhaustive-deps
   
   const { data: traefikLogs } = useQuery({
     queryKey: ['logs-traefik', tailLines],
     queryFn: async () => (await api.logs.getTraefik(tailLines)).data.data ?? null,
-    enabled: logProcessingEnabled && !isStreaming,
+    enabled: logProcessingEnabled && !isStreaming && activeTab === 'logs',
   })
 
   useMountEffect(() => stopStream)
@@ -525,7 +557,35 @@ export default function TraefikDashboardPage() {
         </Card>
       )}
 
-      <Tabs defaultValue="overview" className="space-y-4">
+      {/* Full-page loading skeleton on initial load */}
+      {dashboardLoading && !dashboardData && logProcessingEnabled && (
+        <div className="relative">
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-background/80 backdrop-blur-sm rounded-lg min-h-[60vh]">
+            <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">
+              <div className="relative">
+                <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                <div className="absolute inset-0 h-10 w-10 animate-ping opacity-20 rounded-full bg-primary" />
+              </div>
+              <div className="text-center space-y-1">
+                <p className="text-sm font-semibold text-foreground">Loading Dashboard</p>
+                <p className="text-xs text-muted-foreground">Aggregating Traefik logs and metrics…</p>
+              </div>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 opacity-30 pointer-events-none">
+            <CardSkeleton lines={2} />
+            <CardSkeleton lines={2} />
+            <CardSkeleton lines={2} />
+            <CardSkeleton lines={2} />
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 opacity-30 pointer-events-none">
+            <CardSkeleton className="lg:col-span-2" lines={6} />
+            <CardSkeleton lines={4} />
+          </div>
+        </div>
+      )}
+
+      <Tabs defaultValue="overview" className="space-y-4" onValueChange={setActiveTab}>
         <div className="flex flex-wrap items-center justify-between gap-3 bg-card p-2 rounded-lg border">
           <TabsList className="bg-transparent flex-wrap h-auto justify-start">
             <TabsTrigger value="overview" className="gap-2 data-[state=active]:bg-primary/10 data-[state=active]:text-primary">
@@ -553,9 +613,20 @@ export default function TraefikDashboardPage() {
               <Activity className={cn("h-4 w-4", isLiveView && "animate-pulse")} />
               {isLiveView ? "Live" : "Static"}
             </Button>
-            <RangeSelector value={dashboardRange} onChange={setDashboardRange} />
+            <RangeSelector value={dashboardRange} onChange={setDashboardRange} oldestEntry={d?.oldest_entry} />
           </div>
         </div>
+
+        {/* Transition overlay — shown while new range data is loading (old data kept visible) */}
+        {isPlaceholderData && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-primary/20 bg-primary/5 text-xs text-primary font-medium animate-in fade-in duration-200">
+            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+            Updating to <span className="font-bold">{dashboardRange}</span> range…
+          </div>
+        )}
+
+        {/* Dimming wrapper — content fades slightly while placeholder data is shown */}
+        <div className={cn('transition-opacity duration-300', isPlaceholderData && 'opacity-60 pointer-events-none')}>
 
         {/* OVERVIEW TAB */}
         <TabsContent value="overview" className="space-y-6">
@@ -1553,6 +1624,8 @@ export default function TraefikDashboardPage() {
             onOpenChange={(open) => !open && setSelectedLog(null)} 
           />
         </TabsContent>
+
+        </div> {/* end dimming wrapper */}
 
       </Tabs>
     </div>

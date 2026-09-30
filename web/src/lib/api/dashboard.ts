@@ -64,6 +64,7 @@ export interface TraefikDashboard {
   range: DashboardRange
   format: 'json' | 'clf'
   generated_at: string
+  oldest_entry?: string
   total_requests: number
   unique_ips: number
   avg_duration_ms: number | null

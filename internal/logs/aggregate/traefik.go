@@ -198,6 +198,9 @@ func BucketTraefik(entries []docker.StructuredLogEntry, since, now time.Time, rn
 		out.ErrorRate = float64(errorTotal) / float64(totalRequests)
 	}
 
+	if !minTs.IsZero() {
+		out.OldestEntry = minTs.UTC().Format(time.RFC3339)
+	}
 	out.Series = sortedBuckets(buckets)
 	out.StatusCodes = topNameValues(statusCounts, 0)
 	out.Methods = topNameValues(methodCounts, 0)
@@ -420,6 +423,9 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 		}
 	}
 
+	if !minTs.IsZero() {
+		out.OldestEntry = minTs.UTC().Format(time.RFC3339)
+	}
 	out.Series = sortedBuckets(buckets)
 	out.StatusCodes = topNameValues(statusCounts, 0)
 	out.Methods = topNameValues(methodCounts, 0)

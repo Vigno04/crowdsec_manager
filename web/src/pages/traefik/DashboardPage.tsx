@@ -59,11 +59,18 @@ import { StatCard, ChartCard, AreaTimeline, PieBreakdown, BarDistribution, Threa
 function formatNumber(n: number): string { return n.toLocaleString() }
 function formatPercent(n: number): string { return `${(n * 100).toFixed(1)}%` }
 function formatDuration(ms: number | null | undefined): string {
-  if (ms == null) return '—'
-  const value = ms
+  if (ms == null || isNaN(Number(ms))) return '—'
+  const value = Number(ms)
+  if (value < 0) return '—'
   if (value < 1) return `${(value * 1000).toFixed(0)} µs`
   if (value < 1000) return `${value.toFixed(1)} ms`
   return `${(value / 1000).toFixed(2)} s`
+}
+
+function formatLogTime(t: any): string {
+  if (!t) return '—'
+  const d = new Date(t)
+  return isNaN(d.getTime()) ? String(t) : d.toLocaleTimeString()
 }
 
 function TraefikLogDetail({ log, open, onOpenChange }: { log: any, open: boolean, onOpenChange: (open: boolean) => void }) {
@@ -437,6 +444,18 @@ export default function TraefikDashboardPage() {
 
     // Sort
     logs.sort((a, b) => {
+      if (sortConfig.key === 't') {
+        const aTime = a.t ? new Date(a.t).getTime() : 0
+        const bTime = b.t ? new Date(b.t).getTime() : 0
+        const aValid = !isNaN(aTime) && aTime > 0
+        const bValid = !isNaN(bTime) && bTime > 0
+        if (aValid && bValid) {
+          return sortConfig.direction === 'asc' ? aTime - bTime : bTime - aTime
+        }
+        if (aValid && !bValid) return -1
+        if (!aValid && bValid) return 1
+      }
+
       let aVal = a[sortConfig.key] ?? ''
       let bVal = b[sortConfig.key] ?? ''
       
@@ -1533,7 +1552,7 @@ export default function TraefikDashboardPage() {
                             </Badge>
                             <span className="text-[10px] text-muted-foreground flex items-center gap-1">
                               <Clock className="h-2.5 w-2.5" />
-                              {new Date(error.t).toLocaleTimeString()}
+                              {formatLogTime(error.t)}
                             </span>
                           </div>
                           <p className="text-xs font-mono text-foreground truncate">{error.path || 'Unknown error'}</p>
@@ -1618,7 +1637,7 @@ export default function TraefikDashboardPage() {
                             className="group hover:bg-muted/50 transition-colors cursor-pointer active:bg-muted"
                           >
                             <td className="px-4 py-2.5 text-[11px] text-muted-foreground font-mono tabular-nums">
-                              {log.t ? new Date(log.t).toLocaleTimeString() : '—'}
+                              {formatLogTime(log.t)}
                             </td>
                             <td className="px-4 py-2.5 text-xs font-mono text-muted-foreground group-hover:text-foreground">
                               {log.ip || '—'}
@@ -1649,7 +1668,7 @@ export default function TraefikDashboardPage() {
                           <td colSpan={7} className="py-20 text-center">
                             <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground">
                               <FileText className="h-10 w-10 opacity-10" />
-                              <p className="text-sm font-medium">{isStreaming ? 'Waiting for incoming logs...' : 'No logs found matching your filters'}</p>
+                              <p className="text-sm font-medium">{isLiveView ? 'Waiting for incoming logs...' : 'No logs found matching your filters'}</p>
                               <Button variant="link" size="sm" onClick={() => { setLevelFilter('all'); toast.info('Filters reset') }}>Reset filters</Button>
                             </div>
                           </td>

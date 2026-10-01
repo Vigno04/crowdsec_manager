@@ -21,6 +21,37 @@ describe('parseTraefikLog', () => {
 
     expect(parsed.t).toBe('2026-09-29T11:13:48Z')
   })
+
+  it('correctly parses JSON logs with Docker timestamp prefixes from live streams', () => {
+    const log = '2026-10-01T08:42:00.123456789Z {"ClientHost":"1.2.3.4","DownstreamStatus":403,"RequestMethod":"GET","RequestPath":"/.env","Duration":3000000000}'
+    const parsed = parseTraefikLog(log)
+
+    expect(parsed.ip).toBe('1.2.3.4')
+    expect(parsed.status).toBe(403)
+    expect(parsed.method).toBe('GET')
+    expect(parsed.path).toBe('/.env')
+    expect(parsed.duration).toBe(3000)
+    expect(parsed.t).toBe('2026-10-01T08:42:00.123456789Z')
+  })
+
+  it('correctly parses CLF logs with Docker timestamp prefixes from live streams', () => {
+    const log = '2026-10-01T08:42:00.123456789Z 1.2.3.4 - - [07/May/2026:11:55:00 +0000] "GET /api/v1/photos HTTP/1.1" 200 100'
+    const parsed = parseTraefikLog(log)
+
+    expect(parsed.ip).toBe('1.2.3.4')
+    expect(parsed.status).toBe(200)
+    expect(parsed.method).toBe('GET')
+    expect(parsed.path).toBe('/api/v1/photos')
+    expect(parsed.t).toBe('2026-05-07T11:55:00.000Z')
+  })
+
+  it('prioritizes OriginDuration when present', () => {
+    const log = '{"ClientHost":"1.2.3.4","DownstreamStatus":200,"RequestMethod":"GET","RequestPath":"/img.png","OriginDuration":25000000,"Duration":4000000000}'
+    const parsed = parseTraefikLog(log)
+
+    expect(parsed.duration).toBe(25)
+    expect(parsed.Duration).toBe(25)
+  })
 })
 
 describe('parseUserAgent', () => {

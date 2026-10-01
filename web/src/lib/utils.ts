@@ -167,29 +167,48 @@ export function getStatusVariant(status: number): 'success' | 'info' | 'warning'
 
 export function parseTraefikLog(line: string) {
   try {
-    if (line.trim().startsWith('{')) {
-      const d = JSON.parse(line)
-      const rawDuration = d.Duration ?? d.duration
+    let cleanLine = line.trim()
+    let dockerTime: string | null = null
+
+    // Check for Docker timestamp prefix (e.g. "2026-10-01T08:42:00.123456789Z ")
+    const dockerTsMatch = cleanLine.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2}))\s+(.*)$/)
+    if (dockerTsMatch) {
+      dockerTime = dockerTsMatch[1]
+      cleanLine = dockerTsMatch[2].trim()
+    }
+
+    if (cleanLine.startsWith('{')) {
+      const d = JSON.parse(cleanLine)
+      const rawDuration = d.OriginDuration ?? d.origin_duration ?? d.Duration ?? d.duration
       const durationNumber = rawDuration == null || rawDuration === '' ? NaN : Number(rawDuration)
       const durationMs = Number.isFinite(durationNumber) ? durationNumber / 1_000_000 : undefined
+      const statusRaw = d.DownstreamStatus ?? d.status ?? d.downstream_Status ?? d.OriginStatus
+      const statusNum = statusRaw != null && statusRaw !== '' ? Number(statusRaw) : null
       return {
         ...d,
         Duration: durationMs,
-        t: d.time || d.StartLocal || d.StartUTC || d.t,
+        t: d.time || d.Time || d.StartLocal || d.StartUTC || d.t || dockerTime,
         ip: d.ClientHost || d.ClientAddr || d.client_ip || d.ip,
-        method: d.RequestMethod || d.method,
-        path: d.RequestPath || d.path,
+        method: d.RequestMethod || d.method || d.request_Method,
+        path: d.RequestPath || d.path || d.request_Path,
         host: d.RequestHost || d.request_Host || d.host,
         ua: d.UserAgent || d["request_User-Agent"] || d.user_agent || d.ua,
-        status: d.DownstreamStatus || d.status,
+        status: Number.isFinite(statusNum) ? statusNum : null,
         duration: durationMs,
         service: d.ServiceName || d.service,
-        msg: d.msg || d.message || line
+        msg: d.msg || d.message || cleanLine
       }
     }
-    const clf = line.match(/^(\S+) \S+ \S+ \[(.*?)\] "(\S+) (\S+) \S+" (\d+) (\d+)/)
+    const clf = cleanLine.match(/^(\S+) \S+ \S+ \[(.*?)\] "(\S+) (\S+) \S+" (\d+) (\d+)/)
     if (clf) {
-      return { ip: clf[1], t: parseCLFTimestamp(clf[2]), method: clf[3], path: clf[4], status: parseInt(clf[5]), msg: line }
+      return {
+        ip: clf[1],
+        t: parseCLFTimestamp(clf[2]) || dockerTime,
+        method: clf[3],
+        path: clf[4],
+        status: parseInt(clf[5], 10),
+        msg: cleanLine
+      }
     }
   } catch (e) {}
   return { msg: line, t: null, ip: null, method: null, path: null, status: null }

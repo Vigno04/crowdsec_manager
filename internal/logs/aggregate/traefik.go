@@ -225,18 +225,21 @@ func BucketTraefik(entries []docker.StructuredLogEntry, since, now time.Time, rn
 
 type serviceAgg struct {
 	count    int
+	durCount int
 	totalDur int64
 	errors   int
 }
 
 type pathAgg struct {
 	count    int
+	durCount int
 	totalDur int64
 	method   string
 }
 
 type routerAgg struct {
 	count    int
+	durCount int
 	totalDur int64
 	service  string
 }
@@ -295,6 +298,7 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 	errorTotal := 0
 	totalRequests := 0
 	var totalDurationNs int64
+	var validLatencyCount int
 	durationsMs := make([]float64, 0, len(rows))
 
 	for _, row := range rows {
@@ -312,13 +316,20 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 		path := row.getPath()
 		status := row.getStatus()
 		duration := row.getDuration()
+		latency := row.getLatencyDuration()
+		isStream := isStreamingEntry(status, path)
+		includeInLatency := !isStream && (status < 400 || status >= 500)
 		router := row.getRouter()
 		service := row.getService()
 		ua := row.getUA()
 
 		totalRequests++
 		ipCounts[ip]++
-		totalDurationNs += duration
+		if includeInLatency {
+			totalDurationNs += latency
+			validLatencyCount++
+			durationsMs = append(durationsMs, float64(latency)/float64(time.Millisecond))
+		}
 
 		if method != "" {
 			methodCounts[method]++
@@ -333,7 +344,10 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 				routerStats[router] = r
 			}
 			r.count++
-			r.totalDur += duration
+			if includeInLatency {
+				r.durCount++
+				r.totalDur += latency
+			}
 		}
 		if service != "" {
 			s := serviceStats[service]
@@ -342,7 +356,10 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 				serviceStats[service] = s
 			}
 			s.count++
-			s.totalDur += duration
+			if includeInLatency {
+				s.durCount++
+				s.totalDur += latency
+			}
 			if status >= 400 {
 				s.errors++
 			}
@@ -355,7 +372,10 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 				pathStats[key] = p
 			}
 			p.count++
-			p.totalDur += duration
+			if includeInLatency {
+				p.durCount++
+				p.totalDur += latency
+			}
 		}
 		if ua != "" {
 			if cleaned := cleanUserAgent(ua); cleaned != "" {
@@ -397,7 +417,6 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 		if status >= 400 {
 			errorTotal++
 		}
-		durationsMs = append(durationsMs, float64(duration)/float64(time.Millisecond))
 
 		bucketKey := ts.Truncate(gran).UTC()
 		b, ok := buckets[bucketKey]
@@ -418,9 +437,10 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 		}
 
 		durationMs := int(duration / int64(time.Millisecond))
-		if path != "" && !isStreamingPath(path) {
-			if cur, ok := endpointMaxMs[path]; !ok || durationMs > cur {
-				endpointMaxMs[path] = durationMs
+		if path != "" && includeInLatency {
+			latencyMs := int(latency / int64(time.Millisecond))
+			if cur, ok := endpointMaxMs[path]; !ok || latencyMs > cur {
+				endpointMaxMs[path] = latencyMs
 			}
 		}
 
@@ -440,8 +460,10 @@ func aggregateTraefikJSON(rows []traefikJSON, since, now time.Time, rng models.D
 	out.UniqueIPs = len(ipCounts)
 	if totalRequests > 0 {
 		out.ErrorRate = float64(errorTotal) / float64(totalRequests)
-		avgMs := float64(totalDurationNs) / float64(totalRequests) / float64(time.Millisecond)
-		out.AvgDurationMs = &avgMs
+		if validLatencyCount > 0 {
+			avgMs := float64(totalDurationNs) / float64(validLatencyCount) / float64(time.Millisecond)
+			out.AvgDurationMs = &avgMs
+		}
 
 		if len(durationsMs) > 0 {
 			sort.Float64s(durationsMs)
@@ -516,7 +538,9 @@ func sortedServiceDetails(stats map[string]*serviceAgg, limit int) []models.Trae
 	out := make([]models.TraefikServiceDetail, 0, len(stats))
 	for name, s := range stats {
 		avg := 0.0
-		if s.count > 0 {
+		if s.durCount > 0 {
+			avg = float64(s.totalDur) / float64(s.durCount) / float64(time.Millisecond)
+		} else if s.count > 0 && s.totalDur > 0 {
 			avg = float64(s.totalDur) / float64(s.count) / float64(time.Millisecond)
 		}
 		errRate := 0.0
@@ -549,7 +573,9 @@ func sortedPathDetails(stats map[string]*pathAgg, limit int) []models.TraefikPat
 			path = parts[1]
 		}
 		avg := 0.0
-		if p.count > 0 {
+		if p.durCount > 0 {
+			avg = float64(p.totalDur) / float64(p.durCount) / float64(time.Millisecond)
+		} else if p.count > 0 && p.totalDur > 0 {
 			avg = float64(p.totalDur) / float64(p.count) / float64(time.Millisecond)
 		}
 		out = append(out, models.TraefikPathDetail{
@@ -572,7 +598,9 @@ func sortedRouterDetails(stats map[string]*routerAgg, limit int) []models.Traefi
 	out := make([]models.TraefikRouterDetail, 0, len(stats))
 	for name, r := range stats {
 		avg := 0.0
-		if r.count > 0 {
+		if r.durCount > 0 {
+			avg = float64(r.totalDur) / float64(r.durCount) / float64(time.Millisecond)
+		} else if r.count > 0 && r.totalDur > 0 {
 			avg = float64(r.totalDur) / float64(r.count) / float64(time.Millisecond)
 		}
 		out = append(out, models.TraefikRouterDetail{
@@ -610,8 +638,10 @@ type traefikJSON struct {
 	DownstreamStatus   int    `json:"DownstreamStatus"`
 	Status             int    `json:"status"`
 	Downstream_Status  int    `json:"downstream_Status"`
-	Duration           int64  `json:"Duration"`
-	Duration_Small     int64  `json:"duration"`
+	Duration             int64  `json:"Duration"`
+	Duration_Small       int64  `json:"duration"`
+	OriginDuration       int64  `json:"OriginDuration"`
+	OriginDuration_Small int64  `json:"origin_duration"`
 	RouterName         string `json:"RouterName"`
 	Router             string `json:"router"`
 	ServiceName        string `json:"ServiceName"`
@@ -738,6 +768,16 @@ func (r traefikJSON) getDuration() int64 {
 		return r.Duration
 	}
 	return r.Duration_Small
+}
+
+func (r traefikJSON) getLatencyDuration() int64 {
+	if r.OriginDuration > 0 {
+		return r.OriginDuration
+	}
+	if r.OriginDuration_Small > 0 {
+		return r.OriginDuration_Small
+	}
+	return r.getDuration()
 }
 
 func (r traefikJSON) getRouter() string {
@@ -961,12 +1001,28 @@ func sortedRecentErrors(rows []models.TraefikRecentError, limit int) []models.Tr
 
 // isStreamingPath reports whether a Traefik request path is a long-lived
 // stream (WebSocket / SSE) where row.Duration measures connection lifetime
-// rather than response latency. Mirrors the gzip-exclusion list in
-// cmd/server/main.go — keep them in sync.
+// rather than response latency.
 func isStreamingPath(p string) bool {
+	if p == "" {
+		return false
+	}
+	lower := strings.ToLower(p)
 	return strings.HasPrefix(p, "/api/logs/stream/") ||
 		strings.HasPrefix(p, "/api/events/") ||
-		strings.HasPrefix(p, "/api/terminal/")
+		strings.HasPrefix(p, "/api/terminal/") ||
+		strings.Contains(lower, "websocket") ||
+		strings.Contains(lower, "socket.io") ||
+		strings.Contains(lower, "/sse") ||
+		strings.HasSuffix(lower, "/sse")
+}
+
+// isStreamingEntry checks if a request is a long-lived connection based on
+// HTTP status code (e.g. 101 Switching Protocols) or path characteristics.
+func isStreamingEntry(status int, p string) bool {
+	if status == 101 {
+		return true
+	}
+	return isStreamingPath(p)
 }
 
 // extractCLFMethod pulls METHOD from a CLF request line e.g. `GET /a HTTP/1.1`.

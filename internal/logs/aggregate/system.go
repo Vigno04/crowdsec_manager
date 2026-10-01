@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/shirou/gopsutil/v3/cpu"
 )
 
 const systemStatsCacheTTL = 5 * time.Second
@@ -101,10 +103,7 @@ func getCPUStats() models.CPUStats {
 	}
 	cpuMutex.Unlock()
 
-	model := "Generic CPU"
-	if m, err := readCPUModel(); err == nil {
-		model = m
-	}
+	model := getCPUModel()
 
 	return models.CPUStats{
 		UsagePercent: usage,
@@ -258,22 +257,65 @@ func getCPUTicks() (uint64, uint64, error) {
 	return 0, 0, fmt.Errorf("could not read /proc/stat")
 }
 
-func readCPUModel() (string, error) {
+var (
+	cpuModelOnce   sync.Once
+	cachedCPUModel string
+)
+
+func getCPUModel() string {
+	cpuModelOnce.Do(func() {
+		cachedCPUModel = readCPUModel()
+	})
+	return cachedCPUModel
+}
+
+func readCPUModel() string {
+	info, err := cpu.Info()
+	if err == nil && len(info) > 0 {
+		m := strings.TrimSpace(info[0].ModelName)
+		if m != "" && m != "Undefined" && m != "Unknown" {
+			return m
+		}
+	}
+
+	if m := readCPUModelFromProc(); m != "" {
+		return m
+	}
+
+	if arch := runtime.GOARCH; arch != "" {
+		return arch
+	}
+	return "Generic CPU"
+}
+
+func readCPUModelFromProc() string {
 	file, err := os.Open("/proc/cpuinfo")
 	if err != nil {
-		return "", err
+		return ""
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	return parseCPUInfoScanner(bufio.NewScanner(file))
+}
+
+func parseCPUInfoScanner(scanner *bufio.Scanner) string {
+	var hardware string
 	for scanner.Scan() {
 		line := scanner.Text()
-		if strings.HasPrefix(line, "model name") || strings.HasPrefix(line, "Model") {
-			parts := strings.Split(line, ":")
-			if len(parts) > 1 {
-				return strings.TrimSpace(parts[1]), nil
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		val := strings.TrimSpace(parts[1])
+
+		if strings.EqualFold(key, "model name") || strings.EqualFold(key, "Model") {
+			if val != "" && !strings.EqualFold(val, "Unknown") {
+				return val
 			}
+		} else if strings.EqualFold(key, "Hardware") && hardware == "" {
+			hardware = val
 		}
 	}
-	return "Unknown", nil
+	return hardware
 }
